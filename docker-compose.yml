@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  stress-music-app:
+    build: .
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./generated_audio:/app/generated_audio
+      - /Users/xibei/MusicGPT/model:/app/model:ro  # 只读挂载模型目录
+    environment:
+      - FLASK_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/api/model-status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

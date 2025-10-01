@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>压力音乐生成器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <header class="header">
+            <h1>🎵 压力音乐生成器</h1>
+            <p>根据您的压力水平，为您生成专属的放松音乐</p>
+        </header>
+
+        <!-- 正念动画区域 -->
+        <div class="mindfulness-section">
+            <div class="breathing-circle" id="breathingCircle">
+                <div class="inner-circle"></div>
+            </div>
+            <div class="particles" id="particles"></div>
+        </div>
+
+        <!-- 压力水平选择 -->
+        <div class="stress-selection">
+            <h2>请选择您当前的压力水平</h2>
+            <div class="stress-options" id="stressOptions">
+                <!-- 选项将通过JavaScript动态加载 -->
+            </div>
+        </div>
+
+        <!-- 音乐生成区域 -->
+        <div class="music-generation" id="musicGeneration" style="display: none;">
+            <div class="generation-status">
+                <div class="loading-spinner" id="loadingSpinner"></div>
+                <p id="statusText">正在生成音乐...</p>
+            </div>
+        </div>
+
+        <!-- 音乐播放区域 -->
+        <div class="music-player" id="musicPlayer" style="display: none;">
+            <h3>您的专属音乐已生成</h3>
+            <audio controls id="audioPlayer">
+                您的浏览器不支持音频播放。
+            </audio>
+            <div class="player-controls">
+                <button id="playPauseBtn" class="btn btn-primary">播放</button>
+                <button id="regenerateBtn" class="btn btn-secondary">重新生成</button>
+            </div>
+        </div>
+
+        <!-- 模型状态指示器 -->
+        <div class="model-status" id="modelStatus">
+            <span class="status-indicator loading"></span>
+            <span id="statusText">模型加载中...</span>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
