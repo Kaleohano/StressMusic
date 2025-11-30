@@ -4,11 +4,11 @@ import os
 import json
 from typing import Optional
 
-# 基础关键词（不包含用户偏好）
-_BASE_STRESS_MUSIC_MAP = {
-    "低": ["animato", "80-100 BPM", "major scale"],
-    "中": ["calm upbeat", "70-90 BPM", "major or modal", "moderate pitch"],
-    "高": ["soothing", "60-75 BPM", "slow tempo", "soft instrumentation"]
+# 默认的 压力水平与音乐关键词对应关系（作为回退）
+STRESS_MUSIC_MAP = {
+    "低": ["classical", "personalized preferences", "animato", "80-100 BPM", "major scale"],
+    "中": ["classical", "my_preference_example", "calm upbeat", "70-90 BPM", "major or modal", "moderate pitch"],
+    "高": ["classical", "soothing", "60-75 BPM", "slow tempo", "soft instrumentation"]
 }
 
 # 持久化文件路径（会写入用户选择的偏好关键词）
@@ -24,11 +24,11 @@ def _load_persistent_map():
                 # 保证包含三个级别
                 for k in ["低", "中", "高"]:
                     if k not in data:
-                        data[k] = _BASE_STRESS_MUSIC_MAP.get(k, [])
+                        data[k] = STRESS_MUSIC_MAP.get(k, [])
                 return data
     except Exception:
         pass
-    return _BASE_STRESS_MUSIC_MAP.copy()
+    return STRESS_MUSIC_MAP.copy()
 
 
 def _save_persistent_map(mapping: dict):
@@ -41,60 +41,8 @@ def _save_persistent_map(mapping: dict):
         pass
 
 
-# 用户音乐偏好选择（运行时变量，不修改文件）
-# 可选值: 'pop'（流行）、'rock'（摇滚）、'classical'（古典）、None（未选择）
-USER_MUSIC_PREFERENCE = None
-
-
-def _build_stress_music_map(base_map=None, user_preference=None):
-    """根据基础映射和用户偏好构建完整的 STRESS_MUSIC_MAP。
-    
-    如果 user_preference 不为 None，会将其添加到每个压力等级的关键词列表开头。
-    """
-    if base_map is None:
-        base_map = _BASE_STRESS_MUSIC_MAP.copy()
-    else:
-        base_map = base_map.copy()
-    
-    result = {}
-    for level, keywords in base_map.items():
-        # 复制关键词列表
-        level_keywords = keywords.copy()
-        
-        # 如果用户有偏好，将其添加到开头（先移除旧的偏好关键词）
-        if user_preference is not None:
-            # 移除旧的偏好关键词
-            level_keywords = [kw for kw in level_keywords if kw not in ('pop', 'rock', 'classical')]
-            # 将用户偏好添加到开头
-            level_keywords.insert(0, user_preference)
-        
-        result[level] = level_keywords
-    
-    return result
-
-
 # 在模块加载时尝试用持久化数据覆盖默认映射
-# 注意：_load_persistent_map() 会尝试从持久化文件中恢复 USER_MUSIC_PREFERENCE
-_persistent_map = _load_persistent_map()
-
-# 构建最终的 STRESS_MUSIC_MAP（包含用户偏好）
-# 如果持久化文件存在，使用持久化数据；否则使用基础映射
-if _persistent_map != _BASE_STRESS_MUSIC_MAP:
-    STRESS_MUSIC_MAP = _persistent_map
-    # 从持久化数据中恢复用户偏好
-    valid_preferences = ['pop', 'rock', 'classical']
-    first_keywords = []
-    for level in ["低", "中", "高"]:
-        if level in _persistent_map and len(_persistent_map[level]) > 0:
-            first_keyword = _persistent_map[level][0]
-            if first_keyword in valid_preferences:
-                first_keywords.append(first_keyword)
-    if len(first_keywords) == 3 and len(set(first_keywords)) == 1:
-        USER_MUSIC_PREFERENCE = first_keywords[0]
-        print(f"✅ 已从持久化文件恢复用户音乐偏好: {USER_MUSIC_PREFERENCE}")
-else:
-    # 使用基础映射构建（此时 USER_MUSIC_PREFERENCE 为 None）
-    STRESS_MUSIC_MAP = _build_stress_music_map()
+STRESS_MUSIC_MAP = _load_persistent_map()
 
 # 用户输入压力水平
 def hrv_to_stress_level(hrv_ms: float) -> str:
@@ -152,35 +100,11 @@ def get_stress_music_prompt(hrv_ms: Optional[float] = None) -> str:
     用法：
         - `get_stress_music_prompt(hrv_ms=25.3)` 会基于 HRV 自动选择压力等级并返回关键词。
         - 不传 `hrv_ms` 时尝试读取 `latest_hrv.txt` 来判断等级。
-        - 如果设置了 USER_MUSIC_PREFERENCE，会自动添加到关键词列表的开头。
     """
     stress_level = get_user_stress_level(hrv_ms)
-    # 获取当前压力等级的关键词（已经包含了 USER_MUSIC_PREFERENCE，如果设置了的话）
     music_keywords = STRESS_MUSIC_MAP.get(stress_level, STRESS_MUSIC_MAP['高'])
-    
     # 返回英文的、逗号分隔的关键词，以便模型更好地理解提示词
     return ", ".join(music_keywords)
-
-
-def set_user_music_preference(preference_keyword: str) -> bool:
-    """设置用户音乐偏好（运行时变量，不修改文件）。
-    
-    参数:
-        preference_keyword: 偏好关键词，应为 'pop'、'rock' 或 'classical'
-    
-    返回:
-        bool: 设置是否成功
-    """
-    global USER_MUSIC_PREFERENCE, STRESS_MUSIC_MAP
-    valid_preferences = ['pop', 'rock', 'classical']
-    if preference_keyword in valid_preferences:
-        USER_MUSIC_PREFERENCE = preference_keyword
-        # 重新构建 STRESS_MUSIC_MAP，包含新的用户偏好
-        STRESS_MUSIC_MAP = _build_stress_music_map(_BASE_STRESS_MUSIC_MAP, USER_MUSIC_PREFERENCE)
-        # 同时更新持久化文件，以便下次启动时也能加载偏好
-        _save_persistent_map(STRESS_MUSIC_MAP)
-        return True
-    return False
 
 
 def apply_user_music_preference(preference_keyword: str, hrv_ms: Optional[float] = None) -> str:
@@ -188,11 +112,15 @@ def apply_user_music_preference(preference_keyword: str, hrv_ms: Optional[float]
 
     返回用于生成的 prompt 文本（逗号分隔）。
     如果没有传入 `hrv_ms`，会尝试读取 `latest_hrv.txt` 来判定当前压力等级。
-    
-    注意：此函数已更新为使用 USER_MUSIC_PREFERENCE 变量。
     """
-    # 设置用户偏好
-    set_user_music_preference(preference_keyword)
+    level = get_user_stress_level(hrv_ms)
+    lst = STRESS_MUSIC_MAP.get(level, [])
+    # 在列表中加入新的关键词（避免重复），放在列表开头以优先使用
+    if preference_keyword and preference_keyword not in lst:
+        lst.insert(0, preference_keyword)
+        STRESS_MUSIC_MAP[level] = lst
+        _save_persistent_map(STRESS_MUSIC_MAP)
+
     # 返回更新后的 prompt
     return get_stress_music_prompt(hrv_ms)
 

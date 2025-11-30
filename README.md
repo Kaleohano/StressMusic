@@ -1,40 +1,56 @@
-# StressMusic - 压力音乐生成器
+# 多模态交互式个性化心理压力疗愈系统
 
-基于用户个性化压力的多模态音乐疗愈系统
-
-一个基于用户压力水平生成个性化音乐的 Web 应用，结合了正念冥想动画和 AI 音乐生成技术。
+基于 HRV（心率变异性）监测和 AI 音乐生成的个性化心理压力疗愈 Web 应用系统。
 
 ## 功能特点
 
-- 🎵 **智能音乐生成**: 根据用户选择的压力水平（低/中/高）生成相应的音乐
-- 🧘 **正念动画**: 类似 Apple Watch 的呼吸引导和粒子效果
-- 🎨 **动态主题**: 根据压力水平自动调整界面颜色主题
-- 📱 **响应式设计**: 支持桌面和移动设备
-- ⚡ **实时状态**: 显示模型加载状态和生成进度
+- 🎵 **智能音乐生成**: 基于用户 HRV 值和音乐偏好生成个性化疗愈音乐
+- 🎨 **多页面交互流程**: 完整的用户体验流程，从检测到音乐播放
+- 🧘 **粒子动画效果**: 音乐播放时的动态粒子动画
+- 📊 **实时 HRV 监测**: 支持通过 MAX30102/MAX30105 传感器实时监测 HRV
+- 🎹 **音乐偏好选择**: 支持选择流行、摇滚、古典三种音乐风格
+- 📱 **响应式设计**: 支持桌面和移动设备，莫兰迪橙色主题
+- ⚡ **智能状态管理**: 自动检测 HRV 更新和模型加载状态
+
+## 系统流程
+
+1. **初始页面**: 用户点击"开始"按钮，触发 HRV 监测和模型加载
+2. **检测中页面**: 显示加载状态，等待 HRV 文件更新和模型加载完成
+3. **音乐偏好选择页面**: 用户选择音乐偏好（流行/摇滚/古典）
+4. **加载中页面**: 根据 HRV 和偏好生成个性化音乐
+5. **音乐播放页面**: 显示粒子动画并播放生成的音乐
 
 ## 技术栈
 
 - **后端**: Flask (Python)
-- **前端**: HTML5 + CSS3 + JavaScript
-- **AI 模型**: Facebook MusicGen
+- **前端**: HTML5 + CSS3 + JavaScript (原生)
+- **AI 模型**: Facebook MusicGen (通过 Hugging Face Transformers)
 - **音频处理**: SciPy
-- **机器学习**: Transformers (Hugging Face)
+- **硬件支持**: MAX30102/MAX30105 心率传感器 + Arduino
 
 ## 安装和运行
 
-### 方法一：直接运行（推荐用于开发）
+### 前置要求
 
-#### 1. 安装依赖
+- Python 3.9+
+- MusicGen 模型文件（放置在 `/Users/xibei/MusicGPT/model` 目录）
+- 可选：Arduino Uno + MAX30102/MAX30105 传感器（用于 HRV 监测）
+
+### 1. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 2. 准备模型
+### 2. 准备模型
 
-确保您的MusicGen模型位于 `/Users/xibei/MusicGPT/model` 目录下。
+确保您的 MusicGen 模型位于 `/Users/xibei/MusicGPT/model` 目录下，包含以下文件：
 
-#### 3. 运行应用
+- `config.json`
+- `pytorch_model.bin`
+- `preprocessor_config.json`
+
+### 3. 运行应用
 
 ```bash
 # 使用启动脚本（推荐）
@@ -44,37 +60,7 @@ python run.py
 python app.py
 ```
 
-#### 4. 访问应用
-
-打开浏览器访问: http://localhost:5001
-
-### 方法二：Docker部署（推荐用于生产）
-
-#### 1. 准备模型
-
-确保您的MusicGen模型位于 `/Users/xibei/MusicGPT/model` 目录下。
-
-#### 2. 使用部署脚本
-
-```bash
-# 一键部署
-./deploy.sh
-```
-
-#### 3. 手动Docker部署
-
-```bash
-# 构建镜像
-docker-compose build
-
-# 启动服务
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f
-```
-
-#### 4. 访问应用
+### 4. 访问应用
 
 打开浏览器访问: http://localhost:5001
 
@@ -82,55 +68,252 @@ docker-compose logs -f
 
 ```
 InteractiveWebPage/
-├── app.py                 # Flask主应用
-├── stress.py             # 压力水平处理模块
-├── music.py              # 音乐生成模块（原始版本）
-├── requirements.txt      # Python依赖
+├── app.py                 # Flask 主应用（包含 API 和模型加载）
+├── stress.py             # 压力水平处理模块（HRV 到压力等级转换）
+├── music.py              # 音乐生成模块（原始版本，独立使用）
+├── hrv_reader.py         # HRV 串口读取器（从 Arduino 读取 IBI）
+├── hrv_watcher.py        # HRV 文件监听器（自动触发音乐生成）
+├── hrv_service.py        # HRV 常驻服务（低延迟音乐生成）
+├── requirements.txt      # Python 依赖
 ├── templates/
 │   └── index.html        # 主页面模板
 ├── static/
 │   ├── css/
-│   │   └── style.css     # 样式文件
+│   │   └── style.css     # 样式文件（莫兰迪橙色主题）
 │   └── js/
-│       └── app.js        # 前端逻辑
-└── generated_audio/      # 生成的音频文件存储目录
+│       └── app.js         # 前端逻辑（页面状态管理、API 调用）
+├── generated_audio/      # 生成的音频文件存储目录
+│   ├── latest_hrv.txt    # 最新 HRV 值（由 hrv_reader.py 写入）
+│   └── stress_music_map.json  # 用户偏好持久化文件
+├── hardware/
+│   └── max30102_example/
+│       └── max30102_example.ino  # Arduino 示例代码
+└── tools/
+    └── simulate_hrv.py   # HRV 模拟工具（用于测试）
 ```
+
+## 核心功能说明
+
+### HRV 监测与压力等级
+
+系统根据 HRV (RMSSD) 值自动判断压力等级：
+
+- **HRV ≥ 35 ms**: 低压力
+- **20 ≤ HRV < 35 ms**: 中等压力
+- **HRV < 20 ms**: 高压力
+
+### 音乐偏好系统
+
+用户可以选择三种音乐风格：
+
+- **流行 (pop)**: 现代流行音乐风格
+- **摇滚 (rock)**: 摇滚音乐风格
+- **古典 (classical)**: 古典音乐风格
+
+用户偏好会：
+
+1. 实时更新到 `USER_MUSIC_PREFERENCE` 变量（运行时，不修改文件）
+2. 保存到 `generated_audio/stress_music_map.json`（持久化）
+3. 应用到所有压力等级的关键词列表开头
+
+### 音乐生成流程
+
+1. 系统读取 `latest_hrv.txt` 获取最新 HRV 值
+2. 根据 HRV 值确定压力等级
+3. 结合用户选择的音乐偏好生成提示词
+4. 使用 MusicGen 模型生成个性化音乐
+5. 保存为 WAV 文件并返回给前端播放
 
 ## 使用说明
 
-1. **选择压力水平**: 点击对应的压力水平选项（低/中/高）
-2. **观看动画**: 享受正念冥想动画效果
-3. **等待生成**: 系统会根据您的压力水平生成专属音乐
-4. **播放音乐**: 音乐生成完成后可以直接播放
-5. **重新生成**: 可以随时重新生成音乐
+### Web 界面使用
 
-## 压力水平对应
+1. **启动应用**: 运行 `python app.py` 或 `python run.py`
+2. **访问页面**: 在浏览器中打开 http://localhost:5001
+3. **开始检测**: 点击"开始"按钮
+4. **等待就绪**: 系统会自动检测 HRV 更新和模型加载状态
+5. **选择偏好**: 在偏好选择页面选择音乐风格
+6. **生成音乐**: 系统根据 HRV 和偏好生成音乐
+7. **播放音乐**: 享受个性化疗愈音乐和粒子动画
 
-- **低压力**: 个性化偏好音乐
-- **中等压力**: 轻快音乐 (80-100 BPM, 大调)
-- **高压力**: 舒缓音乐 (小提琴悲伤音乐)
+### 硬件 HRV 监测（可选）
+
+#### 硬件连接
+
+- **Arduino Uno** + **MAX30102/MAX30105** 传感器
+- 接线：
+  - `VCC` -> `5V` 或 `3.3V`
+  - `GND` -> `GND`
+  - `SDA` -> `A4`
+  - `SCL` -> `A5`
+
+#### Arduino 代码
+
+1. 安装 `SparkFun MAX3010x` 库
+2. 上传 `hardware/max30102_example/max30102_example.ino` 到 Arduino
+3. 代码会通过串口输出 `IBI:<value>` 格式的数据
+
+#### 启动 HRV 监测
+
+```bash
+# 查找串口设备（macOS）
+ls /dev/tty.*
+
+# 启动 HRV 读取器
+python hrv_reader.py --port /dev/tty.usbmodemXXXX --baud 115200 --window 30
+```
+
+参数说明：
+
+- `--port`: 串口设备路径
+- `--baud`: 波特率（默认 115200）
+- `--window`: 滑动窗口大小（默认 30，用于计算 RMSSD）
+
+#### 自动触发音乐生成
+
+```bash
+# 方式1: 使用文件监听器（推荐用于开发）
+python hrv_watcher.py --poll 2 --debounce 10
+
+# 方式2: 使用常驻服务（推荐用于生产，低延迟）
+python hrv_service.py --host 127.0.0.1 --port 5002
+```
+
+### 测试模式（无硬件）
+
+如果没有硬件设备，可以使用模拟工具：
+
+```bash
+# 模拟 HRV 值（用于测试）
+python tools/simulate_hrv.py
+```
+
+或在 Web 界面中使用 `/api/simulate-hrv` API（仅开发环境）。
+
+## API 接口
+
+### 模型状态
+
+- `GET /api/model-status`: 获取模型加载状态
+  - 返回: `{loaded: bool, loading: bool, status: string, message: string}`
+
+### HRV 监测
+
+- `POST /api/start-measurement`: 启动 HRV 监测进程
+  - 请求体: `{port: string, baud: int, window: int}`
+- `GET /api/latest-hrv`: 获取最新 HRV 值
+  - 返回: `{exists: bool, hrv: float, mtime: float}`
+
+### 音乐偏好
+
+- `POST /api/confirm-preference`: 确认用户音乐偏好
+  - 请求体: `{preference: string}` (可选值: "流行", "摇滚", "古典")
+  - 返回: `{success: bool, preference: string}`
+
+### 音乐生成
+
+- `POST /api/generate-music`: 生成音乐
+  - 返回: `{success: bool, file_id: string, message: string}`
+- `GET /api/audio/<file_id>`: 获取生成的音频文件
+
+## 配置说明
+
+### 模型路径
+
+默认模型路径: `/Users/xibei/MusicGPT/model`
+
+如需修改，请编辑 `app.py` 中的 `model_path` 变量。
+
+### 串口配置
+
+默认串口配置：
+
+- 端口: `/dev/tty.usbmodem2017_2_251` (macOS)
+- 波特率: 115200
+- 窗口大小: 30
+
+可在前端代码或 API 调用中自定义。
+
+### 文件存储
+
+- 音频文件: `generated_audio/` 目录
+- 最大文件数: 50（可在 `app.py` 中配置）
+- 保留时间: 24 小时（可在 `app.py` 中配置）
 
 ## 注意事项
 
-- 首次运行需要下载和加载 AI 模型，请耐心等待
-- 生成的音频文件会保存在 `generated_audio` 目录
-- 建议使用现代浏览器以获得最佳体验
-
-## 开发说明
-
-- 模型在后台异步加载，避免阻塞用户界面
-- 支持并发请求，但建议避免同时生成多个音乐
-- 音频文件使用 UUID 命名，避免冲突
+- ⚠️ **首次运行**: 模型加载可能需要几分钟时间，请耐心等待
+- ⚠️ **内存要求**: MusicGen 模型较大，建议至少 8GB RAM
+- ⚠️ **GPU 支持**: 如有 GPU，可显著加速模型加载和音乐生成
+- ⚠️ **文件权限**: 确保 `generated_audio/` 目录有写入权限
+- ⚠️ **浏览器兼容**: 建议使用 Chrome、Firefox 或 Safari 最新版本
 
 ## 故障排除
 
-如果遇到问题：
+### 模型加载失败
 
 1. 检查模型路径是否正确
-2. 确保所有依赖已正确安装
-3. 查看控制台错误信息
-4. 检查端口 5001 是否被占用
+2. 确认模型文件完整（config.json, pytorch_model.bin, preprocessor_config.json）
+3. 检查内存是否充足
+4. 查看控制台错误信息
+
+### HRV 检测不到
+
+1. 检查串口设备是否正确连接
+2. 确认 Arduino 代码已正确上传
+3. 检查串口是否被其他程序占用
+4. 尝试使用 `tools/simulate_hrv.py` 模拟测试
+
+### 音乐生成失败
+
+1. 确认模型已加载完成（检查 `/api/model-status`）
+2. 检查 `latest_hrv.txt` 文件是否存在且包含有效数值
+3. 查看后端日志了解详细错误信息
+4. 确认有足够的磁盘空间
+
+### 页面无法访问
+
+1. 检查端口 5001 是否被占用
+2. 确认防火墙设置
+3. 尝试使用 `http://127.0.0.1:5001` 而不是 `localhost`
+
+## 开发说明
+
+### 代码结构
+
+- **前端状态管理**: `static/js/app.js` 中的页面状态机
+- **后端 API**: `app.py` 中的 Flask 路由
+- **压力等级处理**: `stress.py` 中的 HRV 到压力等级转换
+- **用户偏好**: 使用运行时变量 `USER_MUSIC_PREFERENCE`，不修改源文件
+
+### 扩展开发
+
+- 添加新的音乐风格：修改 `app.py` 中的 `update_and_persist_preference` 函数
+- 自定义压力等级：修改 `stress.py` 中的 `hrv_to_stress_level` 函数
+- 调整音乐参数：修改 `stress.py` 中的 `_BASE_STRESS_MUSIC_MAP`
 
 ## 许可证
 
 本项目仅供学习和研究使用。
+
+## 更新日志
+
+### v2.0 (最新)
+
+- ✨ 完整的交互式页面流程
+- ✨ 用户音乐偏好选择系统
+- ✨ 基于 HRV 的自动压力等级判断
+- ✨ 粒子动画效果
+- ✨ 智能状态检测（HRV + 模型加载）
+- 🐛 修复模型加载状态检测问题
+- 🐛 修复文件修改导致应用重启的问题
+
+### v1.0
+
+- 基础音乐生成功能
+- HRV 监测支持
+- 硬件集成
+
+---
+
+如有问题或建议，欢迎提交 Issue 或 Pull Request。
