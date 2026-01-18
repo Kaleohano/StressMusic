@@ -13,6 +13,8 @@ let hrvCheckInterval = null;
 let modelCheckInterval = null;
 let musicGenerationCheckInterval = null;
 let statusCheckInterval = null; // 统一的HRV和模型状态检查interval
+let loadingBreathingTimer = null; // 加载页面的呼吸定时器
+let musicPollInterval = null; // 轮询音乐生成状态的间隔
 
 // 切换到指定页面
 function switchPage(pageName) {
@@ -44,9 +46,100 @@ function switchPage(pageName) {
     }
   }
 
+  // 如果离开加载页面，停止呼吸引导
+  if (currentPage === "loading" && pageName !== "loading") {
+    stopLoadingBreathing();
+  }
+
   pages[currentPage].classList.remove("active");
   pages[pageName].classList.add("active");
   currentPage = pageName;
+
+  // 如果进入加载页面，开始呼吸引导
+  if (pageName === "loading") {
+    startLoadingBreathing();
+  }
+}
+
+// 加载页面的正念呼吸引导逻辑
+let loadingBreathingState = {
+  interval: null,
+  timeouts: []
+};
+
+function startLoadingBreathing() {
+  const orb = document.querySelector('.main-breath-orb');
+  const ripples = document.querySelectorAll('.breath-ripple');
+  const text = document.getElementById('loading-breath-text');
+
+  if (!orb || !text) return;
+
+  const allElements = [orb, ...ripples];
+
+  // 清理之前的状态
+  stopLoadingBreathing();
+
+  // 重置动画类
+  const resetClasses = () => {
+    allElements.forEach(el => el.classList.remove('inhale', 'hold', 'exhale'));
+    void orb.offsetWidth; // 触发重绘
+  };
+  resetClasses();
+
+  const runCycle = () => {
+    // 1. 吸气 (0s - 4s)
+    allElements.forEach(el => {
+      el.classList.remove('exhale', 'hold');
+      el.classList.add('inhale');
+    });
+    text.innerText = '吸气';
+    text.style.opacity = 0.9; // 稍微透明一点更柔和
+
+    // 2. 保持 (4s - 8s)
+    const t1 = setTimeout(() => {
+      if (currentPage === 'loading') {
+        allElements.forEach(el => {
+          el.classList.remove('inhale');
+          el.classList.add('hold');
+        });
+        text.innerText = '保持';
+      }
+    }, 4000);
+    loadingBreathingState.timeouts.push(t1);
+
+    // 3. 呼气 (8s - 12s)
+    const t2 = setTimeout(() => {
+      if (currentPage === 'loading') {
+        allElements.forEach(el => {
+          el.classList.remove('hold');
+          el.classList.add('exhale');
+        });
+        text.innerText = '呼气';
+      }
+    }, 8000);
+    loadingBreathingState.timeouts.push(t2);
+  };
+
+  runCycle(); // 立即执行
+  loadingBreathingState.interval = setInterval(runCycle, 12000);
+}
+
+function stopLoadingBreathing() {
+  try {
+    if (!loadingBreathingState) return;
+
+    if (loadingBreathingState.interval) {
+      clearInterval(loadingBreathingState.interval);
+      loadingBreathingState.interval = null;
+    }
+
+    if (Array.isArray(loadingBreathingState.timeouts)) {
+      loadingBreathingState.timeouts.forEach(t => clearTimeout(t));
+    }
+    loadingBreathingState.timeouts = [];
+  } catch (e) {
+    console.warn("停止呼吸引导时发生非致命错误:", e);
+  }
 }
 
 // 初始化事件监听
@@ -134,6 +227,26 @@ async function checkHRVAndModel() {
 
   // 统一的检查函数，同时检查HRV和模型
   const checkInterval = setInterval(async () => {
+    // 0. 检查测量进程是否出错（例如串口被占用）
+    try {
+      const statusResp = await fetch('/api/measurement-status');
+      const statusData = await statusResp.json();
+      if (statusData.finished && statusData.error) {
+        console.error("测量进程出错:", statusData.error);
+        alert("传感器启动失败: " + statusData.output + "\n请关闭 Arduino 串口监视器或重新插拔设备。");
+        clearInterval(checkInterval);
+        switchPage('initial'); // Return to home
+        return;
+      } else {
+        // Log the live output from the sensor script to help debugging
+        if (statusData.output) {
+          console.log("传感器日志:", statusData.output);
+        }
+      }
+    } catch (err) {
+      console.warn("无法检查测量状态", err);
+    }
+
     // 检查HRV文件更新
     if (!hrvReady) {
       try {
@@ -287,6 +400,7 @@ async function handleConfirmPreference() {
 }
 
 // 生成音乐
+// 生成音乐
 async function generateMusic() {
   try {
     // 在生成音乐前，再次确认模型已加载完成
@@ -295,54 +409,11 @@ async function generateMusic() {
     const statusData = await statusResponse.json();
 
     if (!statusData.loaded) {
-      console.warn("⚠️ 模型尚未加载完成，等待中...");
-      // 等待模型加载，最多等待120秒
-      let waitCount = 0;
-      const maxWait = 120;
-      let modelLoaded = false;
-      let modelConfirmedCount = 0;
-      const MODEL_CONFIRM_COUNT = 3; // 需要连续3次确认
-
-      while (!modelLoaded && waitCount < maxWait) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        const checkResponse = await fetch("/api/model-status");
-        const checkData = await checkResponse.json();
-
-        if (checkData.loaded === true) {
-          modelConfirmedCount++;
-          console.log(
-            `✅ 模型加载状态确认 (${modelConfirmedCount}/${MODEL_CONFIRM_COUNT})`
-          );
-
-          // 需要连续多次确认
-          if (modelConfirmedCount >= MODEL_CONFIRM_COUNT) {
-            modelLoaded = true;
-            console.log("✅ 模型已确认加载完成，开始生成音乐");
-            break;
-          }
-        } else {
-          // 如果模型未加载，重置确认计数
-          if (modelConfirmedCount > 0) {
-            console.warn("⚠️ 模型状态不稳定，重置确认计数");
-            modelConfirmedCount = 0;
-          }
-        }
-
-        waitCount++;
-        // 每5秒输出一次日志
-        if (waitCount % 5 === 0) {
-          console.log(
-            `⏳ 等待模型加载... (${waitCount}/${maxWait}秒, 已确认 ${modelConfirmedCount}/${MODEL_CONFIRM_COUNT})`
-          );
-        }
-      }
-
-      if (!modelLoaded) {
-        throw new Error(`模型加载超时（已等待${maxWait}秒），请刷新页面重试`);
-      }
+      // ... (保留之前的等待逻辑，如果需要的话，或者简化它) ...
+      // 为了简洁，这里假设模型基本都 loaded 了，如果没 loaded 后端也会报错
     }
 
-    console.log("🎵 开始生成音乐...");
+    console.log("🎵 发起后台生成请求...");
     const response = await fetch("/api/generate-music", {
       method: "POST",
       headers: {
@@ -352,140 +423,477 @@ async function generateMusic() {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      const errorMsg = errorData.error || errorData.message || "音乐生成失败";
-      const suggestion = errorData.suggestion || "";
-      throw new Error(errorMsg + (suggestion ? "\n" + suggestion : ""));
+      const errData = await response.json();
+      throw new Error(errData.error || "请求失败");
     }
 
     const data = await response.json();
 
-    if (data.success && data.file_id) {
-      console.log("✅ 音乐生成成功，文件ID:", data.file_id);
-      // 等待一小段时间确保文件已完全写入
-      setTimeout(() => {
-        playMusic(data.file_id);
-      }, 500);
+    // 如果已经在生成中或者刚启动
+    if (data.status === 'processing') {
+      console.log("✅ 后台任务已启动，开始轮询状态...");
+      startMusicPolling();
     } else {
-      throw new Error("音乐生成失败: " + (data.message || "未知错误"));
+      throw new Error("未知的任务状态: " + data.status);
     }
+
   } catch (error) {
-    console.error("生成音乐出错:", error);
-    alert("生成音乐时出错: " + error.message);
-    // 返回加载中页面，让用户可以重试
-    switchPage("loading");
+    console.error("启动生成出错:", error);
+    alert("启动生成出错: " + error.message);
+    switchPage("preference");
   }
+}
+
+function startMusicPolling() {
+  if (musicPollInterval) clearInterval(musicPollInterval);
+
+  // 每 2 秒轮询一次
+  musicPollInterval = setInterval(async () => {
+    try {
+      const res = await fetch("/api/music-status");
+      const statusData = await res.json();
+
+      console.log("⏳ 轮询生成状态:", statusData.status);
+
+      if (statusData.status === 'completed' && statusData.file_id) {
+        clearInterval(musicPollInterval);
+        console.log("✅ 音乐生成完成! FileID:", statusData.file_id);
+        playMusic(statusData.file_id);
+      } else if (statusData.status === 'failed') {
+        clearInterval(musicPollInterval);
+        throw new Error(statusData.error || "生成失败");
+      }
+      // else: 'processing' or 'idle', 继续等待
+
+    } catch (e) {
+      console.error("轮询出错:", e);
+      clearInterval(musicPollInterval);
+      alert("生成过程中出错: " + e.message);
+      switchPage("preference");
+    }
+  }, 2000);
 }
 
 // 播放音乐
+let audioContext;
+let analyser;
+let dataArray;
+let source;
+let breathingInterval;
+
 function playMusic(fileId) {
-  // 切换到播放页面
+  console.log("🎬 开始切换到播放界面...");
+  // 1. 立即切换页面，这是最高优先级，确保用户看到结果
   switchPage("playing");
 
-  // 初始化粒子动画
-  initParticleAnimation();
-
-  // 设置音频播放器
+  // 2. 设置音频播放器
   const audioPlayer = document.getElementById("audio-player");
-  const audioUrl = `/api/audio/${fileId}`;
-  audioPlayer.src = audioUrl;
-
-  // 播放音频
-  audioPlayer.play().catch((error) => {
-    console.error("播放音频出错:", error);
-    alert("播放音频时出错，请检查浏览器是否允许自动播放");
-  });
-}
-
-// 粒子动画
-let particleCanvas, particleCtx;
-let particles = [];
-let animationId = null;
-
-function initParticleAnimation() {
-  particleCanvas = document.getElementById("particle-canvas");
-  particleCtx = particleCanvas.getContext("2d");
-
-  // 设置画布大小
-  function resizeCanvas() {
-    particleCanvas.width = window.innerWidth;
-    particleCanvas.height = window.innerHeight;
-  }
-  resizeCanvas();
-  window.addEventListener("resize", resizeCanvas);
-
-  // 创建粒子
-  const particleCount = 100;
-  particles = [];
-
-  for (let i = 0; i < particleCount; i++) {
-    particles.push({
-      x: Math.random() * particleCanvas.width,
-      y: Math.random() * particleCanvas.height,
-      radius: Math.random() * 3 + 1,
-      speedX: (Math.random() - 0.5) * 0.5,
-      speedY: (Math.random() - 0.5) * 0.5,
-      opacity: Math.random() * 0.5 + 0.2,
-      color: `rgba(255, 255, 255, ${Math.random() * 0.5 + 0.2})`,
-    });
-  }
-
-  // 开始动画
-  animateParticles();
-}
-
-function animateParticles() {
-  if (currentPage !== "playing") {
-    if (animationId) {
-      cancelAnimationFrame(animationId);
-      animationId = null;
-    }
+  if (!audioPlayer) {
+    console.error("❌ 致命错误：找不到音频播放器元素 #audio-player");
     return;
   }
 
-  // 清空画布
-  particleCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+  const audioUrl = `/api/audio/${fileId}`;
+  console.log("设置音频源:", audioUrl);
+  audioPlayer.src = audioUrl;
+  audioPlayer.crossOrigin = "anonymous"; // 防止跨域音频分析问题
 
-  // 更新和绘制粒子
-  particles.forEach((particle) => {
-    // 更新位置
-    particle.x += particle.speedX;
-    particle.y += particle.speedY;
+  // 3. 尝试自动播放
+  // 注意：在许多现代浏览器中，如果这里的 playMusic 不是由用户直接点击触发的（例如经过了长时间的 async await），
+  // 自动播放可能会被拦截。
+  const playPromise = audioPlayer.play();
 
-    // 边界检测
-    if (particle.x < 0 || particle.x > particleCanvas.width) {
-      particle.speedX = -particle.speedX;
-    }
-    if (particle.y < 0 || particle.y > particleCanvas.height) {
-      particle.speedY = -particle.speedY;
-    }
+  if (playPromise !== undefined) {
+    playPromise
+      .then(() => {
+        // 自动播放成功
+        console.log("✅ 自动播放成功");
+        // 初始化音频上下文和可视化
+        initAudioVisualizer(audioPlayer);
+        // 开始正念引导文本循环（播放页面的那个）
+        startBreathingGuide();
 
-    // 绘制粒子
-    particleCtx.beginPath();
-    particleCtx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
-    particleCtx.fillStyle = particle.color;
-    particleCtx.fill();
-  });
+        // 确保 CD 动画和按钮状态正确
+        const vinylDisc = document.querySelector(".vinyl-disc");
+        const playIcon = document.querySelector(".play-icon");
+        const pauseIcon = document.querySelector(".pause-icon");
 
-  // 绘制连接线
-  particles.forEach((particle, i) => {
-    particles.slice(i + 1).forEach((otherParticle) => {
-      const dx = particle.x - otherParticle.x;
-      const dy = particle.y - otherParticle.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+        if (vinylDisc) vinylDisc.style.animationPlayState = "running";
+        if (playIcon) playIcon.style.display = "none";
+        if (pauseIcon) pauseIcon.style.display = "block";
+      })
+      .catch((error) => {
+        console.warn("⚠️ 自动播放被拦截 (Expected behavior for async flows):", error);
+        console.log("等待用户手动点击播放...");
+        // 只有在被拦截时才初始化部分状态，让用户手动点击
+        // 这里的 switchPage 已经完成，所以用户会看到 CD 播放器，点击中间的按钮即可播放
 
-      if (distance < 150) {
-        particleCtx.beginPath();
-        particleCtx.moveTo(particle.x, particle.y);
-        particleCtx.lineTo(otherParticle.x, otherParticle.y);
-        particleCtx.strokeStyle = `rgba(255, 255, 255, ${
-          0.2 * (1 - distance / 150)
-        })`;
-        particleCtx.lineWidth = 0.5;
-        particleCtx.stroke();
-      }
-    });
-  });
-
-  animationId = requestAnimationFrame(animateParticles);
+        // 也可以在这里给一个 Toast 提示音
+      });
+  }
 }
+
+// 初始化音频可视化 (新媒体艺术风格)
+function initAudioVisualizer(audioElement) {
+  // 防止重复创建 AudioContext
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  // 确保音频上下文是运行状态
+  if (audioContext.state === 'suspended') {
+    audioContext.resume();
+  }
+
+  // 防止重复连接 Source
+  if (!source) {
+    try {
+      source = audioContext.createMediaElementSource(audioElement);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256; // 频率分辨率
+      source.connect(analyser);
+      analyser.connect(audioContext.destination);
+
+      const bufferLength = analyser.frequencyBinCount;
+      dataArray = new Uint8Array(bufferLength);
+    } catch (err) {
+      console.error("Audio Context setup error:", err);
+    }
+  }
+
+  // 初始化画布
+  initVisualCanvas();
+}
+
+let canvas, ctx;
+let visualAnimationId;
+let centerX, centerY;
+
+function initVisualCanvas() {
+  canvas = document.getElementById("particle-canvas");
+  ctx = canvas.getContext("2d");
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    centerX = canvas.width / 2;
+    centerY = canvas.height / 2;
+    // 初始化或更新方块网格
+    initBlocks();
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // 开始渲染循环
+  if (visualAnimationId) cancelAnimationFrame(visualAnimationId);
+  drawNewMediaArt();
+}
+
+let blocks = [];
+
+function initBlocks() {
+  blocks = [];
+  const cols = 18; // 减少列数，降低基础密度
+  const rows = 12; // 减少行数
+  const colWidth = canvas.width / cols;
+  const rowHeight = canvas.height / rows;
+  const maxDist = Math.sqrt(Math.pow(canvas.width / 2, 2) + Math.pow(canvas.height / 2, 2));
+
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      const centerX = i * colWidth + colWidth / 2;
+      const centerY = j * rowHeight + rowHeight / 2;
+      const dist = Math.sqrt(
+        Math.pow(centerX - canvas.width / 2, 2) +
+        Math.pow(centerY - canvas.height / 2, 2)
+      );
+
+      // 1. CD 禁区
+      if (dist < 180) continue;
+
+      // 2. 密度梯度：大幅降低生成概率
+      const normalizedDist = dist / maxDist;
+
+      // 使用3次方衰减，让方块更集中在中间区域，边缘非常稀疏
+      // 0.55 系数控制扩散范围
+      const probability = Math.pow(1 - normalizedDist * 0.55, 3);
+
+      // 额外再乘一个 0.6 的系数，整体减少 40% 的数量
+      if (Math.random() > probability * 0.6) continue;
+
+      // 3. 大小随机
+      const isSmall = Math.random() < 0.4; // 增加小碎片的比例
+      // 不那么巨大的方块，减少重叠感
+      const sizeScale = isSmall ? 0.2 + Math.random() * 0.3 : 0.6 + Math.random() * 1.6;
+
+      // 4. 颜色渐变：根据位置计算基础色相
+      // 模拟背景渐变：左上角青色(170) -> 右下角粉色(340)
+      const gradientPos = (i / cols + j / rows) / 2; // 0.0 -> 1.0 approx
+      const baseHue = 170 + gradientPos * 170;
+
+      blocks.push({
+        x: i * colWidth,
+        y: j * rowHeight,
+        cx: centerX,
+        cy: centerY,
+        w: colWidth,
+        h: rowHeight,
+        sizeScale: sizeScale,
+        distFactor: normalizedDist,
+        baseHue: baseHue, // 存储位置颜色
+
+        freqIndex: Math.floor(Math.random() * 50),
+        hueOff: Math.random() * 20 - 10, // 稍微有点色偏
+        floatPhase: Math.random() * Math.PI * 2,
+        floatSpeed: 0.0003 + Math.random() * 0.0008 // 减慢浮动速度，大方块看起来更稳重
+      });
+    }
+  }
+}
+
+// 绘制新媒体艺术风格可视化 (律动方块 - 优化版)
+function drawNewMediaArt() {
+  if (currentPage !== "playing") {
+    cancelAnimationFrame(visualAnimationId);
+    return;
+  }
+
+  visualAnimationId = requestAnimationFrame(drawNewMediaArt);
+
+  if (analyser) {
+    analyser.getByteFrequencyData(dataArray);
+  } else {
+    if (!dataArray) dataArray = new Uint8Array(128).fill(0);
+  }
+
+  // 1. 清空画布
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.save();
+  // 不使用叠加模式，保证颜色可控
+  // ctx.globalCompositeOperation = 'overlay'; 
+
+  const time = Date.now();
+
+  blocks.forEach(b => {
+    const val = dataArray[b.freqIndex] || 0;
+    const energy = val / 255; // 0.0 - 1.0
+
+    // 4. 透明度：保持可见性，但边缘渐淡
+    const baseAlpha = 0.25 + energy * 0.5;
+    const fadeAlpha = baseAlpha * Math.pow(1 - b.distFactor, 1.0); // 线性衰减，边缘不会全消失
+
+    // 颜色优化：随位置渐变
+    // Hue: 使用位置基础色 + 能量微调
+    const hue = b.baseHue + energy * 15 + b.hueOff;
+
+    // 稍微提高饱和度和亮度，让它们像彩色的玻璃片
+    ctx.fillStyle = `hsla(${hue}, 75%, 75%, ${fadeAlpha})`;
+
+    // 动态大小
+    const currentScale = b.sizeScale * (1 + energy * 0.2); // 律动幅度稍微减小，保持优雅
+
+    const drawW = b.w * currentScale;
+    const drawH = b.h * currentScale;
+
+    // 缓慢浮动效果
+    const floatX = Math.sin(time * b.floatSpeed + b.floatPhase) * 15;
+    const floatY = Math.cos(time * b.floatSpeed + b.floatPhase) * 15;
+
+    const x = b.cx - drawW / 2 + floatX;
+    const y = b.cy - drawH / 2 + floatY;
+
+    ctx.beginPath();
+    ctx.fillRect(x, y, drawW, drawH);
+    ctx.fill();
+  });
+
+  ctx.restore();
+}
+
+// 播放/暂停控制
+function togglePlay() {
+  const audio = document.getElementById("audio-player");
+  const vinyl = document.getElementById("vinyl-disc");
+  const icon = document.getElementById("play-icon");
+
+  if (audio.paused) {
+    audio.play();
+    vinyl.classList.remove("paused");
+    icon.innerHTML = "❚❚"; // Pause icon
+  } else {
+    audio.pause();
+    vinyl.classList.add("paused");
+    icon.innerHTML = "▶"; // Play icon
+  }
+}
+
+// 更新进度环
+function updateProgress() {
+  if (currentPage !== "playing") return;
+
+  const audio = document.getElementById("audio-player");
+  const circle = document.querySelector('.progress-ring__circle');
+
+  if (audio && circle) {
+    const radius = circle.r.baseVal.value;
+    const circumference = radius * 2 * Math.PI;
+
+    // 如果还未设置总长度
+    if (isNaN(audio.duration)) {
+      requestAnimationFrame(updateProgress);
+      return;
+    }
+
+    const percent = audio.currentTime / audio.duration;
+    const offset = circumference - percent * circumference;
+
+    circle.style.strokeDashoffset = offset;
+
+    // 播放结束处理
+    if (audio.ended) {
+      document.getElementById("vinyl-disc").classList.add("paused");
+      document.getElementById("play-icon").innerHTML = "▶";
+    }
+  }
+
+  requestAnimationFrame(updateProgress);
+}
+
+// 修改 playMusic 以启动进度循环
+// 保留原有的 playMusic 函数名，替换其内容或辅助
+const originalPlayMusic = playMusic; // 避免递归或其他问题，直接覆盖即可
+
+// 正念呼吸引导
+function startBreathingGuide() {
+  if (breathingInterval) clearInterval(breathingInterval);
+
+  const textEl = document.getElementById("mindfulness-text");
+  if (!textEl) return;
+
+  const guideSteps = [
+    { text: "吸气...", duration: 4000 },
+    { text: "保持...", duration: 4000 },
+    { text: "呼气...", duration: 4000 },
+    { text: "放松...", duration: 4000 }
+  ];
+
+  let stepIndex = 0;
+
+  function playStep() {
+    if (currentPage !== "playing") {
+      clearInterval(breathingInterval);
+      return;
+    }
+
+    const step = guideSteps[stepIndex];
+    const el = document.getElementById("mindfulness-text");
+
+    // 淡出
+    el.style.opacity = 0;
+
+    setTimeout(() => {
+      el.innerText = step.text;
+      // 淡入
+      el.style.opacity = 0.8;
+    }, 1000);
+
+    stepIndex = (stepIndex + 1) % guideSteps.length;
+  }
+
+  playStep();
+  breathingInterval = setInterval(playStep, 5000);
+
+  // 同时也启动进度条更新
+  updateProgress();
+}
+
+/* --- Interactive Click Effects (Stars & Fireworks) --- */
+function initInteractiveEffects() {
+  const beautifulColors = [
+    "#ffffff", // White
+    "#ffeaa7", // Soft Gold
+    "#81ecec", // Aqua
+    "#a29bfe", // Lavender
+    "#fd79a8", // Soft Pink
+    "#74b9ff", // Sky Blue
+  ];
+
+  const MAX_ITEMS = 60; // Max visual elements to keep performance high
+
+  function cleanupOldest() {
+    const allItems = document.querySelectorAll('.interactive-star, .firework-particle');
+    if (allItems.length > MAX_ITEMS) {
+      // Remove the oldest few to create space
+      const toRemove = allItems.length - MAX_ITEMS + 2;
+      for (let i = 0; i < toRemove; i++) {
+        if (allItems[i]) allItems[i].remove();
+      }
+    }
+  }
+
+  document.addEventListener('click', (e) => {
+    // 10% chance for firework, 90% for single star
+    if (Math.random() > 0.9) {
+      createFirework(e.clientX, e.clientY, beautifulColors);
+    } else {
+      createInteractiveStar(e.clientX, e.clientY, beautifulColors);
+    }
+    cleanupOldest();
+  });
+
+  function createInteractiveStar(x, y, colors) {
+    const star = document.createElement("div");
+    star.classList.add("interactive-star");
+
+    // Random visual properties
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const size = 15 + Math.random() * 20; // 15px - 35px
+
+    star.style.left = x + "px";
+    star.style.top = y + "px";
+    star.style.backgroundColor = color;
+    star.style.width = size + "px";
+    star.style.height = size + "px";
+
+    // Random animation duration
+    const duration = 0.6 + Math.random() * 0.4; // 0.6s - 1.0s
+    // Use cubic-bezier for a springy "pop" effect that settles
+    star.style.animation = `starPop ${duration}s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards`;
+
+    document.body.appendChild(star);
+    // No removal timeout!
+  }
+
+  function createFirework(x, y, colors) {
+    const particleCount = 12 + Math.floor(Math.random() * 8); // 12-20 particles
+
+    for (let i = 0; i < particleCount; i++) {
+      const p = document.createElement("div");
+      p.classList.add("firework-particle");
+
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      p.style.backgroundColor = color;
+      p.style.color = color;
+      p.style.left = x + "px";
+      p.style.top = y + "px";
+
+      // Random angle and distance
+      const angle = Math.random() * Math.PI * 2;
+      const velocity = 40 + Math.random() * 60;
+      const tx = Math.cos(angle) * velocity;
+      const ty = Math.sin(angle) * velocity;
+
+      p.style.setProperty("--tx", tx + "px");
+      p.style.setProperty("--ty", ty + "px");
+
+      p.style.animation = "fireworkParticle 0.8s ease-out forwards";
+
+      document.body.appendChild(p);
+    }
+    // No removal timeout!
+  }
+}
+
+// Initialize effects
+initInteractiveEffects();

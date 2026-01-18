@@ -154,44 +154,52 @@ def start_cleanup_scheduler():
 
 
 def _run_measurement_in_thread(cmd, state_dict):
-    """在后台线程内执行测量命令并更新状态字典。"""
+    """在后台线程内执行测量命令并更新状态字典。
+    
+    使用 subprocess 执行 hrv_reader.py，并实时捕获输出。
+    """
     global measurement_proc
     try:
-        state_dict.update({'running': True, 'finished': False, 'error': None, 'output': ''})
-        # 使用 Popen 启动进程，但不等待完成（因为 hrv_reader.py 是持续运行的）
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        measurement_proc = proc
-        print(f"已启动HRV测量进程: {' '.join(cmd)}")
+        # 启动子进程，行缓冲
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        measurement_proc = process
         
-        # 不等待进程完成，因为 hrv_reader.py 是持续运行的
-        # 只检查进程是否成功启动
-        time.sleep(2)  # 等待2秒检查进程状态
-        if proc.poll() is not None:
-            # 进程已经退出，说明启动失败
-            stdout, stderr = proc.communicate()
-            out = ''
-            if stdout:
-                out += stdout
-            if stderr:
-                out += '\n' + stderr
-            state_dict['output'] = out
-            state_dict['finished'] = True
-            state_dict['running'] = False
-            state_dict['error'] = f"进程启动失败: {out}"
-            print(f"HRV测量进程启动失败: {out}")
+        state_dict.update({'running': True, 'finished': False, 'error': None, 'output': '正在启动传感器...'})
+        
+        # 持续读取输出
+        for line in iter(process.stdout.readline, ''):
+            if line:
+                line = line.strip()
+                if line:
+                    state_dict['output'] = line
+                    # 可选：打印到后台控制台
+                    print(f"[HRV] {line}")
+        
+        process.wait()
+        ret = process.returncode
+        
+        state_dict['running'] = False
+        state_dict['finished'] = True
+        if ret != 0:
+            err = f"进程异常退出 (code {ret})"
+            state_dict['error'] = err
+            state_dict['output'] = err
         else:
-            # 进程正在运行
-            state_dict['output'] = "HRV测量进程已启动"
-            print("HRV测量进程正在运行...")
+            state_dict['output'] = "测量已结束"
             
     except Exception as e:
         state_dict['error'] = str(e)
         state_dict['running'] = False
         state_dict['finished'] = True
-        print(f"启动HRV测量失败: {e}")
+        print(f"启动 HRV 测量失败: {e}")
     finally:
-        # 注意：这里不设置 measurement_proc = None，因为进程可能还在运行
-        pass
+        measurement_proc = None
 
 
 def _persist_stress_map(stress_map):
@@ -239,7 +247,9 @@ def update_and_persist_preference(pref):
     
     mapping = {
         '流行': 'pop', '摇滚': 'rock', '古典': 'classical',
-        'pop': 'pop', 'rock': 'rock', 'classical': 'classical'
+        'pop': 'pop', 'rock': 'rock', 'classical': 'classical',
+        '嘻哈': 'hip hop', '电子': 'electronic', 'R&B': 'r&b',
+        '爵士': 'jazz', '乡村': 'country', '布鲁斯': 'blues', '雷鬼': 'reggae'
     }
     pref_word = mapping.get(pref, None)
     if pref_word is None:
@@ -286,121 +296,107 @@ def model_status():
     
     return jsonify(status_info)
 
-@app.route('/api/generate-music', methods=['POST'])
-def generate_music():
-    """生成音乐API"""
+# 全局变量控制生成状态
+music_generation_status = {
+    'status': 'idle', # idle, processing, completed, failed
+    'file_id': None,
+    'error': None
+}
+
+def generate_music_task(input_text):
+    global music_generation_status
+    print(f"🧵 后台线程启动，开始生成音乐，提示词: {input_text}")
     try:
-        # 检查请求数据
-        if not request.is_json:
-            return jsonify({
-                'error': '请求必须是JSON格式',
-                'error_type': 'invalid_request'
-            }), 400
-        
-        data = request.get_json()
-        if data is None:
-            return jsonify({
-                'error': '请求数据为空',
-                'error_type': 'invalid_request'
-            }), 400
-        
-        # 检查模型状态
-        if not model_loaded:
-            return jsonify({
-                'error': '模型还在加载中，请稍后再试',
-                'error_type': 'model_loading',
-                'suggestion': '建议等待1-3分钟让模型完全加载'
-            }), 503
-        
+        # 确保模型已加载
         if model is None or processor is None:
-            return jsonify({
-                'error': '模型未正确加载，请检查模型文件',
-                'error_type': 'model_error',
-                'suggestion': '请检查模型文件是否存在且完整'
-            }), 500
+            raise Exception("模型未正确加载")
+
+        inputs = processor(
+            text=[input_text],
+            padding=True,
+            return_tensors="pt"
+        )
         
-        # 生成唯一的文件名
+        audio_values = model.generate(
+            **inputs,
+            max_new_tokens=1500,
+            do_sample=True,
+            temperature=1.2,
+            top_k=250,
+            top_p=0.9
+        )
+        
+        # 保存音频文件
         file_id = str(uuid.uuid4())
         output_file = os.path.join(AUDIO_DIR, f"{file_id}.wav")
         
-        # 使用基于HRV和用户偏好的提示词
+        sampling_rate = model.config.audio_encoder.sampling_rate
+        audio_data = audio_values[0, 0].numpy()
+        
+        if len(audio_data) == 0:
+            raise ValueError("生成的音频数据为空")
+        
+        scipy.io.wavfile.write(output_file, rate=sampling_rate, data=audio_data)
+        
+        # 验证文件
+        if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
+            raise FileNotFoundError("音频文件保存失败")
+        
+        print(f"✅ 后台生成完成: {file_id}, 大小: {os.path.getsize(output_file)}")
+        music_generation_status = {
+            'status': 'completed',
+            'file_id': file_id,
+            'error': None
+        }
+        
+    except Exception as e:
+        print(f"❌ 后台生成出错: {e}")
+        music_generation_status = {
+            'status': 'failed',
+            'file_id': None,
+            'error': str(e)
+        }
+
+@app.route('/api/generate-music', methods=['POST'])
+def generate_music():
+    global music_generation_status
+    
+    # 检查是否正在运行
+    if music_generation_status['status'] == 'processing':
+         return jsonify({
+             'status': 'processing', 
+             'message': '任务正在进行中'
+         }), 200 # 幂等返回 200
+
+    # 重置状态
+    music_generation_status = {'status': 'processing', 'file_id': None, 'error': None}
+    
+    try:
+        # 模型加载检查
+        if not model_loaded:
+             return jsonify({'error': '模型正在加载中'}), 503
+
+        # 生成 Prompt
         from stress import get_stress_music_prompt
         input_text = get_stress_music_prompt()
-        print(f"🎵 开始生成音乐，提示词: {input_text}")
         
-        # 生成音乐
-        try:
-            inputs = processor(
-                text=[input_text],
-                padding=True,
-                return_tensors="pt"
-            )
-            
-            audio_values = model.generate(
-                **inputs,
-                max_new_tokens=500,
-                do_sample=True,
-                temperature=1.2,
-                top_k=250,
-                top_p=0.9
-            )
-            
-            # 保存音频文件
-            sampling_rate = model.config.audio_encoder.sampling_rate
-            audio_data = audio_values[0, 0].numpy()
-            
-            if len(audio_data) == 0:
-                raise ValueError("生成的音频数据为空")
-            
-            scipy.io.wavfile.write(output_file, rate=sampling_rate, data=audio_data)
-            
-            # 验证文件是否成功创建
-            if not os.path.exists(output_file):
-                raise FileNotFoundError("音频文件保存失败")
-            
-            file_size = os.path.getsize(output_file)
-            if file_size == 0:
-                raise ValueError("生成的音频文件为空")
-            
-            print(f"✅ 音乐生成完成: {file_id}, 文件大小: {file_size} bytes")
-            
-            return jsonify({
-                'success': True,
-                'file_id': file_id,
-                'message': '音乐生成完成！',
-                'file_size': file_size
-            })
-            
-        except Exception as e:
-            # 清理可能创建的空文件
-            if os.path.exists(output_file):
-                try:
-                    os.remove(output_file)
-                except:
-                    pass
-            raise e
+        # 启动后台线程
+        thread = threading.Thread(target=generate_music_task, args=(input_text,))
+        thread.start()
         
-    except ValueError as e:
         return jsonify({
-            'error': f'音频生成失败: {str(e)}',
-            'error_type': 'generation_error',
-            'suggestion': '请重试或检查模型配置'
-        }), 500
-    except FileNotFoundError as e:
-        return jsonify({
-            'error': f'文件操作失败: {str(e)}',
-            'error_type': 'file_error',
-            'suggestion': '请检查存储空间和文件权限'
-        }), 500
+            'success': True,
+            'status': 'processing', 
+            'message': '音乐生成任务已在后台启动'
+        })
+        
     except Exception as e:
-        return jsonify({
-            'error': f'生成音乐时出错: {str(e)}',
-            'error_type': 'unknown_error',
-            'suggestion': '请稍后重试或联系技术支持'
-        }), 500
+        music_generation_status['status'] = 'failed'
+        return jsonify({'error': str(e)}), 500
 
-# 删除重复的generate_music路由定义（第408行开始）
-# 保留上面第296行开始的改进版本
+@app.route('/api/music-status', methods=['GET'])
+def get_music_status():
+    return jsonify(music_generation_status)
 
 @app.route('/api/audio/<file_id>')
 def get_audio(file_id):

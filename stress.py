@@ -41,8 +41,15 @@ def _save_persistent_map(mapping: dict):
         pass
 
 
+# 用户音乐偏好选择列表
+VALID_PREFERENCES = [
+    'pop', 'rock', 'classical', 'hip hop', 'electronic',
+    'r&b', 'jazz', 'country', 'blues', 'reggae'
+]
+
+
 # 用户音乐偏好选择（运行时变量，不修改文件）
-# 可选值: 'pop'（流行）、'rock'（摇滚）、'classical'（古典）、None（未选择）
+# 可选值: 见 VALID_PREFERENCES, None（未选择）
 USER_MUSIC_PREFERENCE = None
 
 
@@ -64,7 +71,7 @@ def _build_stress_music_map(base_map=None, user_preference=None):
         # 如果用户有偏好，将其添加到开头（先移除旧的偏好关键词）
         if user_preference is not None:
             # 移除旧的偏好关键词
-            level_keywords = [kw for kw in level_keywords if kw not in ('pop', 'rock', 'classical')]
+            level_keywords = [kw for kw in level_keywords if kw not in VALID_PREFERENCES]
             # 将用户偏好添加到开头
             level_keywords.insert(0, user_preference)
         
@@ -82,12 +89,11 @@ _persistent_map = _load_persistent_map()
 if _persistent_map != _BASE_STRESS_MUSIC_MAP:
     STRESS_MUSIC_MAP = _persistent_map
     # 从持久化数据中恢复用户偏好
-    valid_preferences = ['pop', 'rock', 'classical']
     first_keywords = []
     for level in ["低", "中", "高"]:
         if level in _persistent_map and len(_persistent_map[level]) > 0:
             first_keyword = _persistent_map[level][0]
-            if first_keyword in valid_preferences:
+            if first_keyword in VALID_PREFERENCES:
                 first_keywords.append(first_keyword)
     if len(first_keywords) == 3 and len(set(first_keywords)) == 1:
         USER_MUSIC_PREFERENCE = first_keywords[0]
@@ -166,14 +172,13 @@ def set_user_music_preference(preference_keyword: str) -> bool:
     """设置用户音乐偏好（运行时变量，不修改文件）。
     
     参数:
-        preference_keyword: 偏好关键词，应为 'pop'、'rock' 或 'classical'
+        preference_keyword: 偏好关键词，应为 VALID_PREFERENCES 中的值
     
     返回:
         bool: 设置是否成功
     """
     global USER_MUSIC_PREFERENCE, STRESS_MUSIC_MAP
-    valid_preferences = ['pop', 'rock', 'classical']
-    if preference_keyword in valid_preferences:
+    if preference_keyword in VALID_PREFERENCES:
         USER_MUSIC_PREFERENCE = preference_keyword
         # 重新构建 STRESS_MUSIC_MAP，包含新的用户偏好
         STRESS_MUSIC_MAP = _build_stress_music_map(_BASE_STRESS_MUSIC_MAP, USER_MUSIC_PREFERENCE)

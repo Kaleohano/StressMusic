@@ -1,80 +1,198 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>多模态交互式个性化心理压力疗愈系统</title>
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/style.css') }}"
-    />
-  </head>
-  <body>
-    <!-- 初始页面 -->
-    <div id="initial-page" class="page active">
-      <div class="container">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>多模态交互式个性化心理压力疗愈系统</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+
+<body>
+  <!-- 初始页面 -->
+  <div id="initial-page" class="page active">
+    <div class="container">
+      <!-- Left Panel: Interaction (Text & Button) -->
+      <div class="glass-panel">
         <h1 class="title">多模态交互式个性化心理压力疗愈系统</h1>
-        <button id="start-btn" class="start-button">开始</button>
+        <p class="status-text" style="font-size: 1.2rem; margin-bottom: 2rem;">
+          基于心率变异性(HRV)的情绪感知与AI音乐生成。<br>为您定制专属的减压旋律。
+        </p>
+        <button id="start-btn" class="start-button">开始体验</button>
+      </div>
+
+      <!-- Right Panel: Visual (Glowing Orbs) -->
+      <div class="visual-right">
+        <div class="glowing-orbs-container">
+          <div class="orb orb-1"></div>
+          <div class="orb orb-2"></div>
+          <div class="orb orb-3"></div>
+          <div class="orb orb-4"></div>
+          <div class="orb orb-5"></div>
+        </div>
       </div>
     </div>
+  </div>
 
-    <!-- 检测中页面 -->
-    <div id="detecting-page" class="page">
-      <div class="container">
+  <!-- 检测中页面 -->
+  <div id="detecting-page" class="page">
+    <div class="container">
+      <div class="glass-panel">
         <div class="loading-container">
           <div class="spinner"></div>
           <h2>正在检测中...</h2>
           <p class="status-text">正在启动HRV监测和加载模型，请稍候</p>
         </div>
       </div>
-    </div>
 
-    <!-- 音乐偏好选择页面 -->
-    <div id="preference-page" class="page">
-      <div class="container">
-        <h2>请选择您的音乐偏好</h2>
+      <!-- Right Panel: Visual (Glowing Orbs) -->
+      <div class="visual-right">
+        <div class="glowing-orbs-container">
+          <div class="orb orb-1"></div>
+          <div class="orb orb-2"></div>
+          <div class="orb orb-3"></div>
+          <div class="orb orb-4"></div>
+          <div class="orb orb-5"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 音乐偏好选择页面 -->
+  <div id="preference-page" class="page">
+    <div class="container">
+      <!-- Left Panel: Preference Options -->
+      <div class="glass-panel">
+        <h2 style="margin-bottom: 2rem; width: 100%;">请选择您的音乐氛围</h2>
+
         <div class="preference-options">
           <div class="preference-option" data-preference="流行">
             <div class="option-icon">🎵</div>
-            <div class="option-label">流行</div>
+            <div class="option-label">流行 (Pop)</div>
           </div>
           <div class="preference-option" data-preference="摇滚">
             <div class="option-icon">🎸</div>
-            <div class="option-label">摇滚</div>
+            <div class="option-label">摇滚 (Rock)</div>
           </div>
           <div class="preference-option" data-preference="古典">
             <div class="option-icon">🎹</div>
-            <div class="option-label">古典</div>
+            <div class="option-label">古典 (Classic)</div>
+          </div>
+          <div class="preference-option" data-preference="嘻哈">
+            <div class="option-icon">🎧</div>
+            <div class="option-label">嘻哈 (Hip-Hop)</div>
+          </div>
+          <div class="preference-option" data-preference="电子">
+            <div class="option-icon">⚡</div>
+            <div class="option-label">电子 (Electronic)</div>
+          </div>
+          <div class="preference-option" data-preference="R&B">
+            <div class="option-icon">🎙️</div>
+            <div class="option-label">R&B</div>
+          </div>
+          <div class="preference-option" data-preference="爵士">
+            <div class="option-icon">🎷</div>
+            <div class="option-label">爵士 (Jazz)</div>
+          </div>
+          <div class="preference-option" data-preference="乡村">
+            <div class="option-icon">🤠</div>
+            <div class="option-label">乡村 (Country)</div>
+          </div>
+          <div class="preference-option" data-preference="布鲁斯">
+            <div class="option-icon">🎺</div>
+            <div class="option-label">布鲁斯 (Blues)</div>
+          </div>
+          <div class="preference-option" data-preference="雷鬼">
+            <div class="option-icon">🥁</div>
+            <div class="option-label">雷鬼 (Reggae)</div>
           </div>
         </div>
-        <button id="confirm-preference-btn" class="confirm-button" disabled>
-          确定
+
+        <button id="confirm-preference-btn" class="confirm-button" disabled style="margin-top: 2rem;">
+          确认选择
         </button>
       </div>
-    </div>
 
-    <!-- 加载中页面 -->
-    <div id="loading-page" class="page">
-      <div class="container">
-        <div class="loading-container">
-          <div class="spinner"></div>
-          <h2>正在生成音乐...</h2>
-          <p class="status-text">根据您的偏好和压力水平生成个性化音乐</p>
+      <!-- Right Panel: Visual (Glowing Orbs) -->
+      <div class="visual-right">
+        <div class="glowing-orbs-container">
+          <div class="orb orb-1"></div>
+          <div class="orb orb-2"></div>
+          <div class="orb orb-3"></div>
+          <div class="orb orb-4"></div>
+          <div class="orb orb-5"></div>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- 音乐播放页面 -->
-    <div id="playing-page" class="page">
-      <canvas id="particle-canvas"></canvas>
-      <div class="music-controls">
-        <audio id="audio-player" controls autoplay></audio>
-        <div class="music-info">
-          <h3>正在播放您的个性化疗愈音乐</h3>
+  <!-- 加载中页面 - 正念呼吸引导 (Pinterest Style) -->
+  <div id="loading-page" class="page">
+    <!-- 添加 single-col-center 类以强制居中 -->
+    <div class="container single-col-center">
+
+      <div class="breath-visual-wrapper">
+        <!-- 装饰性涟漪背景 -->
+        <div class="breath-ripple ripple-1"></div>
+        <div class="breath-ripple ripple-2"></div>
+        <div class="breath-ripple ripple-3"></div>
+
+        <!-- 核心呼吸球 -->
+        <div class="main-breath-orb">
+          <span id="loading-breath-text">吸气</span>
         </div>
       </div>
+
+      <!-- 底部状态文字 -->
+      <div class="loading-status-footer">
+        <p>保持呼吸节奏，AI 正在为您编织专属旋律...</p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 音乐播放页面 -->
+  <!-- 音乐播放页面 -->
+  <div id="playing-page" class="page">
+    <!-- Visualizer Canvas Background -->
+    <canvas id="particle-canvas"></canvas>
+
+    <!-- Center CD Player -->
+    <div class="cd-container">
+      <!-- Progress Ring SVG -->
+      <svg class="progress-ring" width="340" height="340">
+        <circle class="progress-ring__bg" stroke="rgba(255,255,255,0.3)" stroke-width="4" fill="transparent" r="160"
+          cx="170" cy="170" />
+        <circle class="progress-ring__circle" stroke="#6C5CE7" stroke-width="4" fill="transparent" r="160" cx="170"
+          cy="170" />
+      </svg>
+
+      <!-- Vinyl Disc -->
+      <div class="vinyl-disc" id="vinyl-disc">
+        <div class="vinyl-grooves"></div>
+        <div class="vinyl-label"></div>
+      </div>
+
+      <!-- Play/Pause Button Area (Center) -->
+      <button id="cd-center-btn" class="cd-center-btn" onclick="togglePlay()">
+        <span id="play-icon" class="play-icon">❚❚</span>
+      </button>
     </div>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
-  </body>
+    <!-- Breathing Text -->
+    <div id="mindfulness-text"></div>
+
+    <!-- Hidden Audio Element -->
+    <audio id="audio-player" controls autoplay style="opacity:0; pointer-events:none; position:absolute;"></audio>
+
+    <!-- Track Info Bottom -->
+    <div class="track-info-bottom">
+      <h3>正在播放您的个性化疗愈音乐</h3>
+      <p>基于实时心率变异性生成</p>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+
 </html>

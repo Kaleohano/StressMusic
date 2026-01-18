@@ -48,8 +48,8 @@ def rmssd_from_ibi_list(ibi_list):
     if len(ibi_list) < 2:
         return None
 
-    # 使用更严格的清洗策略以去除孤立异常点，防止单点放大 RMSSD
-    cleaned, removed = clean_ibi_list(ibi_list, min_ibi=350.0, max_ibi=1500.0, mad_multiplier=1.5)
+    # 使用更宽松的清洗策略，避免过度过滤真实波动
+    cleaned, removed = clean_ibi_list(ibi_list, min_ibi=300.0, max_ibi=2000.0, mad_multiplier=3.0)
     if len(cleaned) < 2:
         return None
 
@@ -78,7 +78,7 @@ def rmssd_from_ibi_list(ibi_list):
     return math.sqrt(mean_sq)
 
 
-def clean_ibi_list(ibi_list, min_ibi=300.0, max_ibi=2000.0, mad_multiplier=3.0):
+def clean_ibi_list(ibi_list, min_ibi=300.0, max_ibi=2000.0, mad_multiplier=3.5):
     """清洗 IBI 列表：去掉超出 [min_ibi, max_ibi] 的值，基于 MAD 去除孤立异常点。
     返回 (cleaned_list, removed_count)
     """
@@ -117,7 +117,7 @@ def run(port, baudrate, window_size, service_url=None, final=False, compact=Fals
         # EMA 平滑参数和最小样本数（适度放宽，配合更严格的清洗）
         ema_hrv = None
         ema_alpha = 0.25
-        min_count_for_hrv = 6
+        min_count_for_hrv = 5
 
         while True:
             line = ser.readline().decode(errors='ignore').strip()
@@ -137,13 +137,14 @@ def run(port, baudrate, window_size, service_url=None, final=False, compact=Fals
                         ibi_val = 60000.0 / bpm
 
             if ibi_val is not None:
+                print(f"DEBUG: 收到原始 IBI={ibi_val:.2f}", flush=True)
                 ibi_window.append(ibi_val)
                 now = time.strftime('%Y-%m-%d %H:%M:%S')
 
                 cleaned, removed = clean_ibi_list(list(ibi_window))
                 if len(cleaned) < min_count_for_hrv:
                     if not final and not compact:
-                        print(f"接收到 IBI={ibi_val:.2f} ms；等待更多数据以计算 HRV... (window {len(ibi_window)})")
+                        print(f"接收到 IBI={ibi_val:.2f} ms；等待更多数据以计算 HRV... (window {len(ibi_window)})", flush=True)
                     continue
 
                 raw_hrv = rmssd_from_ibi_list(cleaned)
