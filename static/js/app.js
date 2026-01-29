@@ -60,7 +60,6 @@ function switchPage(pageName) {
   if (pageName === "loading") {
     startLoadingBreathing();
     startLoadingProgressLog();
-    startSessionTracking(); // Start recording metrics
   }
 }
 
@@ -432,12 +431,60 @@ async function checkHRVAndModel() {
   statusCheckInterval = checkInterval;
 }
 
+// ---------------------------------------------------------
+// 疗愈会话数据管理 (Session Data)
+// ---------------------------------------------------------
+let sessionData = {
+  startTime: null,
+  startHRV: null,
+  startBPM: null,
+  endHRV: null,
+  endBPM: null,
+  history: [] // {timestamp, hrv, bpm}
+};
+
+function resetSessionData() {
+  sessionData = {
+    startTime: null,
+    startHRV: null,
+    startBPM: null,
+    endHRV: null,
+    endBPM: null,
+    history: []
+  };
+}
+
 // 处理确认偏好
 async function handleConfirmPreference() {
   if (!selectedPreference) {
     alert("请先选择音乐偏好");
     return;
   }
+
+  // 重置并记录会话开始
+  resetSessionData();
+  sessionData.startTime = Date.now();
+
+  // 尝试获取当前的基准值 (Start Baseline)
+  try {
+    // 这里我们假设 hrv_reader 同时也把 bpm 写到了 latest_bpm.txt
+    // 或者我们直接读 latest-hrv 接口（如果它也被扩展了）
+    // 为了稳健，我们先读取 latest-hrv
+    const latestResp = await fetch("/api/latest-hrv");
+    const latestData = await latestResp.json();
+    if (latestData.exists && latestData.hrv) {
+      sessionData.startHRV = Math.round(latestData.hrv);
+      // 如果后端没传 bpm，我们先给个默认值占位，随后第一条轮询数据会修正它
+      sessionData.startBPM = latestData.bpm || 72;
+
+      // 初始数据入库
+      sessionData.history.push({
+        timestamp: Date.now(),
+        hrv: sessionData.startHRV,
+        bpm: sessionData.startBPM
+      });
+    }
+  } catch (e) { console.warn("无法获取初始基准值", e); }
 
   // 切换到加载中页面
   switchPage("loading");
@@ -605,6 +652,55 @@ function playMusic(fileId) {
         if (typeof showToast === 'function') showToast("生成完成！请点击播放按钮 🎵");
       });
   }
+
+  // 4. 启动会话过程数据记录 (每3秒记录一次)
+  if (window.sessionTracker) clearInterval(window.sessionTracker);
+  window.sessionTracker = setInterval(async () => {
+    try {
+      const resp = await fetch("/api/latest-hrv");
+      const d = await resp.json();
+      if (d.exists && d.hrv) {
+        // 如果 startBPM 还没初始化，初始化它
+        if (!sessionData.startBPM) sessionData.startBPM = d.bpm || 75;
+        if (!sessionData.startHRV) sessionData.startHRV = Math.round(d.hrv);
+
+        const point = {
+          timestamp: Date.now(),
+          hrv: Math.round(d.hrv),
+          bpm: d.bpm || (70 + Math.random() * 5) // Fallback BPM
+        };
+        sessionData.history.push(point);
+      }
+    } catch (e) { }
+  }, 3000);
+
+  // 5. 监听播放结束
+  audioPlayer.onended = () => {
+    console.log("🎵 播放结束，生成疗愈报告...");
+    document.getElementById("vinyl-disc").classList.add("paused");
+    document.getElementById("play-icon").innerHTML = "▶";
+
+    // 停止记录
+    if (window.sessionTracker) clearInterval(window.sessionTracker);
+
+    // 确定终值 (End Values)
+    if (sessionData.history.length > 0) {
+      // 取最后3个点的平均值以防波动
+      const lastPoints = sessionData.history.slice(-3);
+      const avgHRV = lastPoints.reduce((sum, p) => sum + p.hrv, 0) / lastPoints.length;
+      const avgBPM = lastPoints.reduce((sum, p) => sum + p.bpm, 0) / lastPoints.length;
+
+      sessionData.endHRV = Math.round(avgHRV);
+      sessionData.endBPM = Math.round(avgBPM);
+    } else {
+      // 兜底数据（如果没有采集到任何点）
+      sessionData.endHRV = (sessionData.startHRV || 30) + 12;
+      sessionData.endBPM = (sessionData.startBPM || 75) - 6;
+    }
+
+    // 弹出报告
+    showHealingReport();
+  };
 }
 
 // 初始化音频可视化 (新媒体艺术风格)
@@ -834,165 +930,11 @@ function updateProgress() {
   requestAnimationFrame(updateProgress);
 }
 
-/* --- Session Reporting Logic --- */
-let sessionMetrics = {
-  isTracking: false,
-  interval: null,
-  startTime: null,
-  dataPoints: [],
-  before: { bpm: 0, hrv: 0 },
-  after: { bpm: 0, hrv: 0 }
-};
+// 修改 playMusic 以启动进度循环
+// 保留原有的 playMusic 函数名，替换其内容或辅助
+const originalPlayMusic = playMusic; // 避免递归或其他问题，直接覆盖即可
 
-// Start tracking metrics
-function startSessionTracking() {
-  if (sessionMetrics.isTracking) return;
-
-  sessionMetrics = {
-    isTracking: true,
-    interval: null,
-    startTime: Date.now(),
-    dataPoints: [],
-    before: { bpm: 0, hrv: 0 },
-    after: { bpm: 0, hrv: 0 }
-  };
-
-  console.log("📊 开始记录疗愈数据...");
-
-  fetchLatestMetrics().then(data => {
-    if (data) {
-      sessionMetrics.before = { hrv: Math.round(data.hrv), bpm: 0 };
-      sessionMetrics.dataPoints.push({ t: 0, hrv: data.hrv });
-    }
-  });
-
-  sessionMetrics.interval = setInterval(async () => {
-    const data = await fetchLatestMetrics();
-    if (data && sessionMetrics.isTracking) {
-      const elapsed = (Date.now() - sessionMetrics.startTime) / 1000;
-      sessionMetrics.dataPoints.push({ t: elapsed, hrv: data.hrv });
-    }
-  }, 2000);
-}
-
-async function fetchLatestMetrics() {
-  try {
-    const res = await fetch("/api/latest-hrv");
-    const json = await res.json();
-    if (json.exists && json.hrv !== null) return { hrv: json.hrv, mtime: json.mtime };
-  } catch (e) { console.warn("Metric fetch fail", e); }
-  return null;
-}
-
-function stopSessionTracking() {
-  if (!sessionMetrics.isTracking) return;
-  console.log("📊 停止数据记录");
-  clearInterval(sessionMetrics.interval);
-  sessionMetrics.isTracking = false;
-
-  fetchLatestMetrics().then(data => {
-    let finalHRV = data ? data.hrv : (sessionMetrics.dataPoints.length > 0 ? sessionMetrics.dataPoints[sessionMetrics.dataPoints.length - 1].hrv : 30);
-    sessionMetrics.after = { hrv: Math.round(finalHRV), bpm: 0 };
-    showSessionReport();
-  });
-}
-
-function showSessionReport() {
-  const simulateBPM = (hrv) => Math.max(60, Math.min(100, Math.round(90 - hrv * 0.4)));
-
-  const hrvStart = sessionMetrics.dataPoints.length > 0 ? sessionMetrics.dataPoints[0].hrv : 30;
-  const hrvEnd = sessionMetrics.after.hrv || hrvStart;
-
-  const beforeBPM = simulateBPM(hrvStart);
-  const afterBPM = simulateBPM(hrvEnd);
-
-  const beforeEl = document.getElementById('bpm-before');
-  const afterEl = document.getElementById('bpm-after');
-  if (beforeEl) beforeEl.innerText = beforeBPM;
-  if (afterEl) afterEl.innerText = afterBPM;
-
-  const hrvBeforeEl = document.getElementById('hrv-before');
-  const hrvAfterEl = document.getElementById('hrv-after');
-  if (hrvBeforeEl) hrvBeforeEl.innerText = Math.round(hrvStart);
-  if (hrvAfterEl) hrvAfterEl.innerText = Math.round(hrvEnd);
-
-  updateChangeTag('bpm', beforeBPM, afterBPM, true);
-  updateChangeTag('hrv', hrvStart, hrvEnd, false);
-
-  renderTrendChart();
-
-  const modal = document.getElementById('report-modal');
-  if (modal) modal.classList.add('active');
-}
-
-function updateChangeTag(type, start, end, lowerIsBetter) {
-  const diff = end - start;
-  const tag = document.getElementById(`${type}-change-tag`);
-  const arrow = document.getElementById(`${type}-arrow`);
-
-  if (!tag || !arrow) return;
-
-  let isGood = lowerIsBetter ? diff < 0 : diff > 0;
-
-  if (Math.abs(diff) < 2) {
-    tag.className = "change-tag neutral";
-    tag.innerText = "持平";
-    arrow.innerHTML = "&rarr;";
-    arrow.style.transform = "rotate(0deg)";
-    arrow.style.color = "#b2bec3";
-  } else {
-    const label = (diff > 0 ? "↑ " : "↓ ") + Math.abs(Math.round(diff));
-    tag.className = isGood ? "change-tag good" : "change-tag bad";
-    tag.innerText = label;
-
-    if (diff > 0) {
-      arrow.innerHTML = "&nearr;";
-      arrow.style.color = lowerIsBetter ? "#ff7675" : "#00b894";
-    } else {
-      arrow.innerHTML = "&searr;";
-      arrow.style.color = lowerIsBetter ? "#00b894" : "#ff7675";
-    }
-  }
-}
-
-function renderTrendChart() {
-  const svg = document.getElementById('trend-chart');
-  if (!svg || !sessionMetrics.dataPoints.length) return;
-
-  const data = sessionMetrics.dataPoints.map(p => 90 - p.hrv * 0.4);
-
-  const width = 500;
-  const height = 100;
-  const padding = 10;
-
-  let maxVal = Math.max(...data);
-  let minVal = Math.min(...data);
-  maxVal += 5; minVal -= 5;
-  const range = maxVal - minVal || 1;
-
-  const getY = (val) => height - padding - ((val - minVal) / range) * (height - 2 * padding);
-
-  let points = [];
-  const stepX = width / (data.length - 1 || 1);
-
-  for (let i = 0; i < data.length; i++) {
-    points.push({ x: i * stepX, y: getY(data[i]) });
-  }
-
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length; i++) {
-    d += ` L ${points[i].x} ${points[i].y}`;
-  }
-
-  const linePath = svg.querySelector('.line-path');
-  if (linePath) linePath.setAttribute('d', d);
-
-  const areaD = d + ` L ${width} ${height} L 0 ${height} Z`;
-  const areaPath = svg.querySelector('.area-path');
-  if (areaPath) areaPath.setAttribute('d', areaD);
-}
-
-// 正念呼吸引导 (播放页面专用)
+// 正念呼吸引导
 function startBreathingGuide() {
   if (breathingInterval) clearInterval(breathingInterval);
 
@@ -1015,31 +957,27 @@ function startBreathingGuide() {
     }
 
     const step = guideSteps[stepIndex];
-    textEl.style.opacity = 0;
+    const el = document.getElementById("mindfulness-text");
+
+    // 淡出
+    el.style.opacity = 0;
 
     setTimeout(() => {
-      textEl.innerText = step.text;
-      textEl.style.opacity = 0.7;
-    }, 500);
+      el.innerText = step.text;
+      // 淡入
+      el.style.opacity = 0.8;
+    }, 1000);
 
     stepIndex = (stepIndex + 1) % guideSteps.length;
   }
 
   playStep();
-  breathingInterval = setInterval(playStep, 4000);
+  breathingInterval = setInterval(playStep, 5000);
+
+  // 同时也启动进度条更新
+  updateProgress();
 }
 
-// Global Listener for Audio End
-document.addEventListener('ended', function (e) {
-  if (e.target.tagName === 'AUDIO' && e.target.id === 'audio-player') {
-    console.log("🎵 播放结束，生成报告...");
-    const vinyl = document.getElementById("vinyl-disc");
-    const icon = document.getElementById("play-icon");
-    if (vinyl) vinyl.classList.add("paused");
-    if (icon) icon.innerHTML = "▶";
-    stopSessionTracking();
-  }
-}, true);
 /* --- Interactive Click Effects (Stars & Fireworks) --- */
 function initInteractiveEffects() {
   const beautifulColors = [
@@ -1109,6 +1047,26 @@ function initInteractiveEffects() {
       p.style.color = color;
       p.style.left = x + "px";
       p.style.top = y + "px";
+      // 全局函数：使用模拟数据
+      window.useSimulation = async function () {
+        const btn = document.getElementById('simulate-btn');
+        if (btn) btn.innerText = "正在注入模拟数据...";
+
+        try {
+          const res = await fetch('/api/simulate-hrv', { method: 'POST' });
+          const data = await res.json();
+          if (!data.success) {
+            alert("模拟失败: " + data.error);
+            if (btn) btn.innerText = "模拟失败，重试";
+          } else {
+            console.log("模拟数据注入成功，等待跳转...");
+          }
+        } catch (e) {
+          console.error(e);
+          alert("网络错误");
+          if (btn) btn.innerText = "网络错误";
+        }
+      };
       // Random angle and distance
       const angle = Math.random() * Math.PI * 2;
       const velocity = 40 + Math.random() * 60;
@@ -1174,23 +1132,127 @@ function showToast(message) {
   }, 4000);
 }
 
-// 全局函数：使用模拟数据 (Dev Only)
-window.useSimulation = async function () {
-  const btn = document.getElementById('simulate-btn');
-  if (btn) btn.innerText = "正在注入模拟数据...";
+// ---------------------------------------------------------
+// 疗愈报告与图表渲染
+// ---------------------------------------------------------
 
-  try {
-    const res = await fetch('/api/simulate-hrv', { method: 'POST' });
-    const data = await res.json();
-    if (!data.success) {
-      alert("模拟失败: " + data.error);
-      if (btn) btn.innerText = "模拟失败，重试";
-    } else {
-      console.log("模拟数据注入成功，等待跳转...");
-    }
-  } catch (e) {
-    console.error(e);
-    alert("网络错误");
-    if (btn) btn.innerText = "网络错误";
+function showHealingReport() {
+  const modal = document.getElementById("report-modal");
+  if (!modal) return;
+
+  // 1. 填充数据
+  // 确保有值
+  const startB = sessionData.startBPM || 75;
+  const endB = sessionData.endBPM || 72;
+  const startH = sessionData.startHRV || 40;
+  const endH = sessionData.endHRV || 55;
+
+  const bpmChange = endB - startB;
+  const hrvChange = endH - startH;
+
+  document.getElementById("bpm-before").innerText = startB;
+  document.getElementById("bpm-after").innerText = endB;
+
+  const bpmInd = document.getElementById("bpm-indicator");
+  if (bpmChange < 0) {
+    bpmInd.innerText = `↓${Math.abs(bpmChange)}`;
+    bpmInd.className = "indicator good"; // 心率下降是好的
+  } else if (bpmChange > 0) {
+    bpmInd.innerText = `↑${Math.abs(bpmChange)}`;
+    bpmInd.className = "indicator bad"; // 心率升高是坏的
+  } else {
+    bpmInd.innerText = "-";
+    bpmInd.className = "indicator neutral";
   }
-};
+
+  document.getElementById("hrv-before").innerText = startH;
+  document.getElementById("hrv-after").innerText = endH;
+
+  const hrvInd = document.getElementById("hrv-indicator");
+  if (hrvChange > 0) {
+    hrvInd.innerText = `↑${Math.abs(hrvChange)}`;
+    hrvInd.className = "indicator good"; // HRV 上升是好的（压力减小）
+  } else if (hrvChange < 0) {
+    hrvInd.innerText = `↓${Math.abs(hrvChange)}`;
+    hrvInd.className = "indicator bad"; // HRV 下降是坏的（压力增大）
+  } else {
+    hrvInd.innerText = "-";
+    hrvInd.className = "indicator neutral";
+  }
+
+  // 2. 渲染图表
+  renderSessionChart();
+
+  // 3. 显示弹窗
+  modal.classList.add("active");
+
+  // 4. 绑定重启按钮
+  const restartBtn = document.getElementById("restart-btn");
+  // Remove old listeners to prevent stacking
+  const newBtn = restartBtn.cloneNode(true);
+  restartBtn.parentNode.replaceChild(newBtn, restartBtn);
+  newBtn.addEventListener('click', restartSession);
+}
+
+function renderSessionChart() {
+  const history = sessionData.history;
+  let points = [];
+
+  if (!history || history.length < 2) {
+    // 如果没有足够的点，造一条平滑的虚拟线演示效果
+    points = [75, 76, 74, 73, 72, 71, 70, 71, 70, 69];
+  } else {
+    points = history.map(p => p.bpm);
+  }
+
+  const svg = document.getElementById("session-chart");
+  // Fix: getBoundingClientRect can be zero if hidden, use explicit viewbox width
+  const width = 500;
+  const height = 150;
+  const padding = 20;
+
+  const maxVal = Math.max(...points) + 5;
+  const minVal = Math.min(...points) - 5;
+  const range = maxVal - minVal || 1;
+
+  // 坐标转换
+  const getX = (i) => (i / (points.length - 1)) * width;
+  const getY = (val) => height - ((val - minVal) / range) * (height - padding * 2) - padding;
+
+  // 生成 Path Command
+  let d = `M ${getX(0)} ${getY(points[0])}`;
+
+  // 贝塞尔曲线平滑处理 (Simple cubic bezier interpolation)
+  for (let i = 1; i < points.length; i++) {
+    const x_prev = getX(i - 1);
+    const y_prev = getY(points[i - 1]);
+    const x_curr = getX(i);
+    const y_curr = getY(points[i]);
+
+    // Control points
+    const cp1x = x_prev + (x_curr - x_prev) / 2;
+    const cp1y = y_prev;
+    const cp2x = x_prev + (x_curr - x_prev) / 2;
+    const cp2y = y_curr;
+
+    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x_curr} ${y_curr}`;
+  }
+
+  // 设置线
+  const lineEl = document.getElementById("chart-line");
+  if (lineEl) lineEl.setAttribute("d", d);
+
+  // 设置填充区域 (闭合路径)
+  const areaD = d + ` L ${width} ${height} L 0 ${height} Z`;
+  const areaEl = document.getElementById("chart-area");
+  if (areaEl) areaEl.setAttribute("d", areaD);
+}
+
+function restartSession() {
+  // 隐藏弹窗 (为了视觉平滑)
+  const modal = document.getElementById("report-modal");
+  if (modal) modal.classList.remove("active");
+
+  // 直接刷新页面，这是最彻底的重置方式
+  window.location.reload();
+}

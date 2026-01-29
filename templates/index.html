@@ -153,7 +153,6 @@
 
   <!-- 音乐播放页面 -->
   <!-- 音乐播放页面 -->
-  <!-- 音乐播放页面 -->
   <div id="playing-page" class="page">
     <!-- Visualizer Canvas Background -->
     <canvas id="particle-canvas"></canvas>
@@ -193,65 +192,66 @@
     </div>
   </div>
 
-  <!-- 疗愈报告弹窗 (默认隐藏) -->
+  <!-- 疗愈报告弹窗 -->
   <div id="report-modal" class="modal-overlay">
-    <div class="report-card">
-      <h2>疗愈效能报告</h2>
-      <p class="report-subtitle">本次心流旅程的生理数据反馈</p>
+    <div class="glass-panel report-card">
+      <h2 class="report-title">本次疗愈报告</h2>
 
-      <div class="metrics-comparison">
-        <!-- BPM 卡片 -->
-        <div class="metric-box">
-          <div class="metric-label">心率 (BPM)</div>
-          <div class="comparison-row">
-            <div class="value-group">
-              <span class="sub-label">Before</span>
-              <span id="bpm-before" class="metric-val">--</span>
+      <!-- 核心指标对比 -->
+      <div class="stats-comparison">
+        <!-- 心率 (BPM) -->
+        <div class="stat-group">
+          <div class="stat-label">心率 (BPM)</div>
+          <div class="stat-row">
+            <div class="stat-item before">
+              <span class="value" id="bpm-before">--</span>
+              <span class="tag">Before</span>
             </div>
-            <div class="arrow-indicator" id="bpm-arrow">→</div>
-            <div class="value-group">
-              <span class="sub-label">After</span>
-              <span id="bpm-after" class="metric-val">--</span>
+            <div class="arrow">→</div>
+            <div class="stat-item after">
+              <span class="value" id="bpm-after">--</span>
+              <span class="indicator" id="bpm-indicator"></span>
+              <span class="tag">After</span>
             </div>
           </div>
-          <div class="change-tag" id="bpm-change-tag">持平</div>
         </div>
 
-        <!-- HRV 卡片 -->
-        <div class="metric-box">
-          <div class="metric-label">心率变异性 (HRV)</div>
-          <div class="comparison-row">
-            <div class="value-group">
-              <span class="sub-label">Before</span>
-              <span id="hrv-before" class="metric-val">--</span>
+        <!-- 压力 (HRV) -->
+        <div class="stat-group">
+          <div class="stat-label">压力指数 (HRV)</div>
+          <div class="stat-row">
+            <div class="stat-item before">
+              <span class="value" id="hrv-before">--</span>
+              <span class="tag">Before</span>
             </div>
-            <div class="arrow-indicator" id="hrv-arrow">→</div>
-            <div class="value-group">
-              <span class="sub-label">After</span>
-              <span id="hrv-after" class="metric-val">--</span>
+            <div class="arrow">→</div>
+            <div class="stat-item after">
+              <span class="value" id="hrv-after">--</span>
+              <span class="indicator" id="hrv-indicator"></span>
+              <span class="tag">After</span>
             </div>
           </div>
-          <div class="change-tag" id="hrv-change-tag">持平</div>
         </div>
       </div>
 
-      <!-- 曲线图容器 -->
+      <!-- 趋势图表 -->
       <div class="chart-container">
-        <h3>全过程心率趋势</h3>
-        <svg id="trend-chart" width="100%" height="100" viewBox="0 0 500 100" preserveAspectRatio="none">
-          <path d="" fill="none" stroke="#6C5CE7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
-            class="line-path" />
+        <p class="chart-label">全程心率波动曲线</p>
+        <svg id="session-chart" width="100%" height="150" viewBox="0 0 500 150" preserveAspectRatio="none">
+          <!-- SVG Path 将由 JS 动态生成 -->
           <defs>
             <linearGradient id="chartGradient" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stop-color="rgba(108, 92, 231, 0.4)" />
-              <stop offset="100%" stop-color="rgba(108, 92, 231, 0)" />
+              <stop offset="0%" stop-color="#6C5CE7" stop-opacity="0.4" />
+              <stop offset="100%" stop-color="#6C5CE7" stop-opacity="0" />
             </linearGradient>
           </defs>
-          <path d="" fill="url(#chartGradient)" stroke="none" class="area-path" />
+          <path id="chart-area" d="" fill="url(#chartGradient)" />
+          <path id="chart-line" d="" fill="none" stroke="#6C5CE7" stroke-width="3" stroke-linecap="round"
+            stroke-linejoin="round" />
         </svg>
       </div>
 
-      <button onclick="location.reload()" class="restart-btn">开启新的旅程</button>
+      <button id="restart-btn" class="start-button" style="margin-top: 2rem;">再次体验</button>
     </div>
   </div>
 
