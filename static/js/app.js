@@ -60,6 +60,7 @@ function switchPage(pageName) {
   if (pageName === "loading") {
     startLoadingBreathing();
     startLoadingProgressLog();
+    startSessionTracking(); // Start recording metrics
   }
 }
 
@@ -833,11 +834,165 @@ function updateProgress() {
   requestAnimationFrame(updateProgress);
 }
 
-// 修改 playMusic 以启动进度循环
-// 保留原有的 playMusic 函数名，替换其内容或辅助
-const originalPlayMusic = playMusic; // 避免递归或其他问题，直接覆盖即可
+/* --- Session Reporting Logic --- */
+let sessionMetrics = {
+  isTracking: false,
+  interval: null,
+  startTime: null,
+  dataPoints: [],
+  before: { bpm: 0, hrv: 0 },
+  after: { bpm: 0, hrv: 0 }
+};
 
-// 正念呼吸引导
+// Start tracking metrics
+function startSessionTracking() {
+  if (sessionMetrics.isTracking) return;
+
+  sessionMetrics = {
+    isTracking: true,
+    interval: null,
+    startTime: Date.now(),
+    dataPoints: [],
+    before: { bpm: 0, hrv: 0 },
+    after: { bpm: 0, hrv: 0 }
+  };
+
+  console.log("📊 开始记录疗愈数据...");
+
+  fetchLatestMetrics().then(data => {
+    if (data) {
+      sessionMetrics.before = { hrv: Math.round(data.hrv), bpm: 0 };
+      sessionMetrics.dataPoints.push({ t: 0, hrv: data.hrv });
+    }
+  });
+
+  sessionMetrics.interval = setInterval(async () => {
+    const data = await fetchLatestMetrics();
+    if (data && sessionMetrics.isTracking) {
+      const elapsed = (Date.now() - sessionMetrics.startTime) / 1000;
+      sessionMetrics.dataPoints.push({ t: elapsed, hrv: data.hrv });
+    }
+  }, 2000);
+}
+
+async function fetchLatestMetrics() {
+  try {
+    const res = await fetch("/api/latest-hrv");
+    const json = await res.json();
+    if (json.exists && json.hrv !== null) return { hrv: json.hrv, mtime: json.mtime };
+  } catch (e) { console.warn("Metric fetch fail", e); }
+  return null;
+}
+
+function stopSessionTracking() {
+  if (!sessionMetrics.isTracking) return;
+  console.log("📊 停止数据记录");
+  clearInterval(sessionMetrics.interval);
+  sessionMetrics.isTracking = false;
+
+  fetchLatestMetrics().then(data => {
+    let finalHRV = data ? data.hrv : (sessionMetrics.dataPoints.length > 0 ? sessionMetrics.dataPoints[sessionMetrics.dataPoints.length - 1].hrv : 30);
+    sessionMetrics.after = { hrv: Math.round(finalHRV), bpm: 0 };
+    showSessionReport();
+  });
+}
+
+function showSessionReport() {
+  const simulateBPM = (hrv) => Math.max(60, Math.min(100, Math.round(90 - hrv * 0.4)));
+
+  const hrvStart = sessionMetrics.dataPoints.length > 0 ? sessionMetrics.dataPoints[0].hrv : 30;
+  const hrvEnd = sessionMetrics.after.hrv || hrvStart;
+
+  const beforeBPM = simulateBPM(hrvStart);
+  const afterBPM = simulateBPM(hrvEnd);
+
+  const beforeEl = document.getElementById('bpm-before');
+  const afterEl = document.getElementById('bpm-after');
+  if (beforeEl) beforeEl.innerText = beforeBPM;
+  if (afterEl) afterEl.innerText = afterBPM;
+
+  const hrvBeforeEl = document.getElementById('hrv-before');
+  const hrvAfterEl = document.getElementById('hrv-after');
+  if (hrvBeforeEl) hrvBeforeEl.innerText = Math.round(hrvStart);
+  if (hrvAfterEl) hrvAfterEl.innerText = Math.round(hrvEnd);
+
+  updateChangeTag('bpm', beforeBPM, afterBPM, true);
+  updateChangeTag('hrv', hrvStart, hrvEnd, false);
+
+  renderTrendChart();
+
+  const modal = document.getElementById('report-modal');
+  if (modal) modal.classList.add('active');
+}
+
+function updateChangeTag(type, start, end, lowerIsBetter) {
+  const diff = end - start;
+  const tag = document.getElementById(`${type}-change-tag`);
+  const arrow = document.getElementById(`${type}-arrow`);
+
+  if (!tag || !arrow) return;
+
+  let isGood = lowerIsBetter ? diff < 0 : diff > 0;
+
+  if (Math.abs(diff) < 2) {
+    tag.className = "change-tag neutral";
+    tag.innerText = "持平";
+    arrow.innerHTML = "&rarr;";
+    arrow.style.transform = "rotate(0deg)";
+    arrow.style.color = "#b2bec3";
+  } else {
+    const label = (diff > 0 ? "↑ " : "↓ ") + Math.abs(Math.round(diff));
+    tag.className = isGood ? "change-tag good" : "change-tag bad";
+    tag.innerText = label;
+
+    if (diff > 0) {
+      arrow.innerHTML = "&nearr;";
+      arrow.style.color = lowerIsBetter ? "#ff7675" : "#00b894";
+    } else {
+      arrow.innerHTML = "&searr;";
+      arrow.style.color = lowerIsBetter ? "#00b894" : "#ff7675";
+    }
+  }
+}
+
+function renderTrendChart() {
+  const svg = document.getElementById('trend-chart');
+  if (!svg || !sessionMetrics.dataPoints.length) return;
+
+  const data = sessionMetrics.dataPoints.map(p => 90 - p.hrv * 0.4);
+
+  const width = 500;
+  const height = 100;
+  const padding = 10;
+
+  let maxVal = Math.max(...data);
+  let minVal = Math.min(...data);
+  maxVal += 5; minVal -= 5;
+  const range = maxVal - minVal || 1;
+
+  const getY = (val) => height - padding - ((val - minVal) / range) * (height - 2 * padding);
+
+  let points = [];
+  const stepX = width / (data.length - 1 || 1);
+
+  for (let i = 0; i < data.length; i++) {
+    points.push({ x: i * stepX, y: getY(data[i]) });
+  }
+
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    d += ` L ${points[i].x} ${points[i].y}`;
+  }
+
+  const linePath = svg.querySelector('.line-path');
+  if (linePath) linePath.setAttribute('d', d);
+
+  const areaD = d + ` L ${width} ${height} L 0 ${height} Z`;
+  const areaPath = svg.querySelector('.area-path');
+  if (areaPath) areaPath.setAttribute('d', areaD);
+}
+
+// 正念呼吸引导 (播放页面专用)
 function startBreathingGuide() {
   if (breathingInterval) clearInterval(breathingInterval);
 
@@ -860,27 +1015,31 @@ function startBreathingGuide() {
     }
 
     const step = guideSteps[stepIndex];
-    const el = document.getElementById("mindfulness-text");
-
-    // 淡出
-    el.style.opacity = 0;
+    textEl.style.opacity = 0;
 
     setTimeout(() => {
-      el.innerText = step.text;
-      // 淡入
-      el.style.opacity = 0.8;
-    }, 1000);
+      textEl.innerText = step.text;
+      textEl.style.opacity = 0.7;
+    }, 500);
 
     stepIndex = (stepIndex + 1) % guideSteps.length;
   }
 
   playStep();
-  breathingInterval = setInterval(playStep, 5000);
-
-  // 同时也启动进度条更新
-  updateProgress();
+  breathingInterval = setInterval(playStep, 4000);
 }
 
+// Global Listener for Audio End
+document.addEventListener('ended', function (e) {
+  if (e.target.tagName === 'AUDIO' && e.target.id === 'audio-player') {
+    console.log("🎵 播放结束，生成报告...");
+    const vinyl = document.getElementById("vinyl-disc");
+    const icon = document.getElementById("play-icon");
+    if (vinyl) vinyl.classList.add("paused");
+    if (icon) icon.innerHTML = "▶";
+    stopSessionTracking();
+  }
+}, true);
 /* --- Interactive Click Effects (Stars & Fireworks) --- */
 function initInteractiveEffects() {
   const beautifulColors = [
@@ -950,26 +1109,6 @@ function initInteractiveEffects() {
       p.style.color = color;
       p.style.left = x + "px";
       p.style.top = y + "px";
-      // 全局函数：使用模拟数据
-      window.useSimulation = async function () {
-        const btn = document.getElementById('simulate-btn');
-        if (btn) btn.innerText = "正在注入模拟数据...";
-
-        try {
-          const res = await fetch('/api/simulate-hrv', { method: 'POST' });
-          const data = await res.json();
-          if (!data.success) {
-            alert("模拟失败: " + data.error);
-            if (btn) btn.innerText = "模拟失败，重试";
-          } else {
-            console.log("模拟数据注入成功，等待跳转...");
-          }
-        } catch (e) {
-          console.error(e);
-          alert("网络错误");
-          if (btn) btn.innerText = "网络错误";
-        }
-      };
       // Random angle and distance
       const angle = Math.random() * Math.PI * 2;
       const velocity = 40 + Math.random() * 60;
@@ -1034,3 +1173,24 @@ function showToast(message) {
     fadeOut.onfinish = () => toast.remove();
   }, 4000);
 }
+
+// 全局函数：使用模拟数据 (Dev Only)
+window.useSimulation = async function () {
+  const btn = document.getElementById('simulate-btn');
+  if (btn) btn.innerText = "正在注入模拟数据...";
+
+  try {
+    const res = await fetch('/api/simulate-hrv', { method: 'POST' });
+    const data = await res.json();
+    if (!data.success) {
+      alert("模拟失败: " + data.error);
+      if (btn) btn.innerText = "模拟失败，重试";
+    } else {
+      console.log("模拟数据注入成功，等待跳转...");
+    }
+  } catch (e) {
+    console.error(e);
+    alert("网络错误");
+    if (btn) btn.innerText = "网络错误";
+  }
+};
