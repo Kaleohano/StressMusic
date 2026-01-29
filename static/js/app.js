@@ -46,18 +46,20 @@ function switchPage(pageName) {
     }
   }
 
-  // 如果离开加载页面，停止呼吸引导
+  // 如果离开加载页面，停止呼吸引导和进度日志
   if (currentPage === "loading" && pageName !== "loading") {
     stopLoadingBreathing();
+    stopLoadingProgressLog();
   }
 
   pages[currentPage].classList.remove("active");
   pages[pageName].classList.add("active");
   currentPage = pageName;
 
-  // 如果进入加载页面，开始呼吸引导
+  // 如果进入加载页面，开始呼吸引导和进度日志
   if (pageName === "loading") {
     startLoadingBreathing();
+    startLoadingProgressLog();
   }
 }
 
@@ -142,6 +144,62 @@ function stopLoadingBreathing() {
   }
 }
 
+// ---------------------------------------------------------
+// 方案 A: 进度文案 (Progress Log) - 让等待变得有意义
+// ---------------------------------------------------------
+
+let loadingProgressState = {
+  timeouts: []
+};
+
+const loadingLogs = [
+  { time: 0, text: "正在分析您的心率变异性 (HRV)..." },
+  { time: 5000, text: "检测到压力水平，正在匹配舒缓算法..." },
+  { time: 15000, text: "正在构建基础旋律 (BPM: 70)..." },
+  { time: 30000, text: "加载 MusicGen 模型参数..." },
+  { time: 50000, text: "正在生成第一乐章：引入..." },
+  { time: 90000, text: "正在生成第二乐章：发展..." },
+  { time: 130000, text: "正在生成第三乐章：高潮..." },
+  { time: 170000, text: "正在生成第四乐章：回归..." },
+  { time: 200000, text: "正在进行声学优化与无缝循环处理..." },
+  { time: 220000, text: "正在去除音频伪影 (DC Offset Removal)..." },
+  { time: 240000, text: "最终渲染中，即将完成..." }
+];
+
+function startLoadingProgressLog() {
+  stopLoadingProgressLog(); // 先清理
+
+  const statusFooter = document.querySelector('.loading-status-footer p');
+  if (!statusFooter) return;
+
+  // 重置样式
+  statusFooter.style.transition = 'opacity 0.5s ease-in-out';
+  statusFooter.style.opacity = 1;
+
+  loadingLogs.forEach(log => {
+    const t = setTimeout(() => {
+      // 淡出
+      statusFooter.style.opacity = 0.2;
+
+      // 切换文字并淡入
+      setTimeout(() => {
+        statusFooter.innerText = log.text;
+        statusFooter.style.opacity = 1;
+      }, 500);
+
+    }, log.time);
+
+    loadingProgressState.timeouts.push(t);
+  });
+}
+
+function stopLoadingProgressLog() {
+  if (Array.isArray(loadingProgressState.timeouts)) {
+    loadingProgressState.timeouts.forEach(t => clearTimeout(t));
+  }
+  loadingProgressState.timeouts = [];
+}
+
 // 初始化事件监听
 document.addEventListener("DOMContentLoaded", () => {
   // 开始按钮
@@ -224,6 +282,16 @@ async function checkHRVAndModel() {
   } catch (error) {
     console.error("获取初始HRV状态出错:", error);
   }
+
+  // 显示跳过按钮的定时器（5秒后若还在检测中，显示按钮）
+  setTimeout(() => {
+    const btn = document.getElementById('simulate-btn');
+    if (btn && !hrvReady) {
+      btn.style.display = 'inline-block';
+      // 增加抖动动画提示用户
+      btn.style.animation = 'floatImage 0.5s ease-in-out';
+    }
+  }, 5000);
 
   // 统一的检查函数，同时检查HRV和模型
   const checkInterval = setInterval(async () => {
@@ -524,11 +592,16 @@ function playMusic(fileId) {
       })
       .catch((error) => {
         console.warn("⚠️ 自动播放被拦截 (Expected behavior for async flows):", error);
-        console.log("等待用户手动点击播放...");
-        // 只有在被拦截时才初始化部分状态，让用户手动点击
-        // 这里的 switchPage 已经完成，所以用户会看到 CD 播放器，点击中间的按钮即可播放
+        // 确保 UI 显示为"暂停"状态（即显示播放按钮），引导用户点击
+        const vinylDisc = document.querySelector(".vinyl-disc");
+        const playIcon = document.querySelector(".play-icon");
+        const pauseIcon = document.querySelector(".pause-icon");
 
-        // 也可以在这里给一个 Toast 提示音
+        if (vinylDisc) vinylDisc.style.animationPlayState = "paused";
+        if (playIcon) playIcon.style.display = "block";
+        if (pauseIcon) pauseIcon.style.display = "none";
+
+        if (typeof showToast === 'function') showToast("生成完成！请点击播放按钮 🎵");
       });
   }
 }
@@ -877,7 +950,26 @@ function initInteractiveEffects() {
       p.style.color = color;
       p.style.left = x + "px";
       p.style.top = y + "px";
+      // 全局函数：使用模拟数据
+      window.useSimulation = async function () {
+        const btn = document.getElementById('simulate-btn');
+        if (btn) btn.innerText = "正在注入模拟数据...";
 
+        try {
+          const res = await fetch('/api/simulate-hrv', { method: 'POST' });
+          const data = await res.json();
+          if (!data.success) {
+            alert("模拟失败: " + data.error);
+            if (btn) btn.innerText = "模拟失败，重试";
+          } else {
+            console.log("模拟数据注入成功，等待跳转...");
+          }
+        } catch (e) {
+          console.error(e);
+          alert("网络错误");
+          if (btn) btn.innerText = "网络错误";
+        }
+      };
       // Random angle and distance
       const angle = Math.random() * Math.PI * 2;
       const velocity = 40 + Math.random() * 60;
@@ -897,3 +989,48 @@ function initInteractiveEffects() {
 
 // Initialize effects
 initInteractiveEffects();
+
+// 简单的 Toast 提示函数
+function showToast(message) {
+  const toast = document.createElement("div");
+  toast.className = "toast-message";
+  toast.innerText = message;
+
+  // CSS 样式内联
+  toast.style.position = "fixed";
+  toast.style.bottom = "100px";
+  toast.style.left = "50%";
+  toast.style.transform = "translateX(-50%)";
+  toast.style.backgroundColor = "rgba(30,30,30,0.9)";
+  toast.style.color = "white";
+  toast.style.padding = "12px 24px";
+  toast.style.borderRadius = "30px";
+  toast.style.zIndex = "9999";
+  toast.style.boxShadow = "0 4px 15px rgba(0,0,0,0.3)";
+  toast.style.fontFamily = "sans-serif";
+  toast.style.fontSize = "16px";
+  toast.style.pointerEvents = "none";
+
+  document.body.appendChild(toast);
+
+  // 淡入淡出动画
+  toast.animate([
+    { opacity: 0, transform: "translateX(-50%) translateY(20px)" },
+    { opacity: 1, transform: "translateX(-50%) translateY(0)" }
+  ], {
+    duration: 300,
+    fill: "forwards",
+    easing: "ease-out"
+  });
+
+  setTimeout(() => {
+    const fadeOut = toast.animate([
+      { opacity: 1 },
+      { opacity: 0 }
+    ], {
+      duration: 500,
+      fill: "forwards"
+    });
+    fadeOut.onfinish = () => toast.remove();
+  }, 4000);
+}

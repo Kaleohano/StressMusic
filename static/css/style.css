@@ -671,8 +671,8 @@ p.status-text {
     font-size: 1rem;
     font-weight: 300;
     letter-spacing: 1px;
-    opacity: 0.6;
-    animation: fadePulse 4s infinite ease-in-out;
+    opacity: 0.8;
+    /* Animation removed to allow JS control for progress log */
 }
 
 @keyframes fadePulse {

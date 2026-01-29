@@ -5,10 +5,16 @@ import json
 from typing import Optional
 
 # 基础关键词（不包含用户偏好）
+# 基础的压力-音乐映射表（MusicGen 风格优化版）
 _BASE_STRESS_MUSIC_MAP = {
-    "低": ["animato", "80-100 BPM", "major scale"],
-    "中": ["calm upbeat", "70-90 BPM", "major or modal", "moderate pitch"],
-    "高": ["soothing", "60-75 BPM", "slow tempo", "soft instrumentation"]
+    # 压力低：欢快、活力
+    "低": ["upbeat pop rock", "energetic", "catchy melody", "positive vibes", "bright atmosphere", "major scale"],
+    # 压力中：平静、流畅
+    "中": ["smooth jazz", "lo-fi hip hop", "relaxing flow", "chill", "soft textures", "moderate tempo"],
+    # 压力高：疗愈、冥想
+    "高": [
+        "soft piano", "acoustic guitar", "cello", "soothing instrumental", "relaxing melody", "arpeggio", "clear melody", "warm tone"
+    ]
 }
 
 # 持久化文件路径（会写入用户选择的偏好关键词）
@@ -151,6 +157,18 @@ def get_user_stress_level(hrv_ms: Optional[float] = None) -> str:
     # 回退到默认，不再要求手动输入
     return '高'
 
+def get_user_bpm() -> int:
+    """读取最近的脉搏 BPM"""
+    path = os.path.join(os.path.dirname(__file__), 'generated_audio', 'latest_bpm.txt')
+    try:
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                return int(float(f.read().strip()))
+    except:
+        pass
+    return 75  # 默认值
+
+
 # 根据压力水平和关键词生成音乐模型输入文本
 def get_stress_music_prompt(hrv_ms: Optional[float] = None) -> str:
     """根据 HRV（可选）返回用于音乐生成的关键词文本。
@@ -159,13 +177,96 @@ def get_stress_music_prompt(hrv_ms: Optional[float] = None) -> str:
         - `get_stress_music_prompt(hrv_ms=25.3)` 会基于 HRV 自动选择压力等级并返回关键词。
         - 不传 `hrv_ms` 时尝试读取 `latest_hrv.txt` 来判断等级。
         - 如果设置了 USER_MUSIC_PREFERENCE，会自动添加到关键词列表的开头。
+        - 会读取 user BPM 并动态调整生成音乐的速度（BPM）。
     """
     stress_level = get_user_stress_level(hrv_ms)
     # 获取当前压力等级的关键词（已经包含了 USER_MUSIC_PREFERENCE，如果设置了的话）
-    music_keywords = STRESS_MUSIC_MAP.get(stress_level, STRESS_MUSIC_MAP['高'])
+    # 注意：必须 copy，否则会修改全局变量
+    music_keywords = STRESS_MUSIC_MAP.get(stress_level, STRESS_MUSIC_MAP['高']).copy()
     
-    # 返回英文的、逗号分隔的关键词，以便模型更好地理解提示词
-    return ", ".join(music_keywords)
+    # --- 动态 BPM 策略 ---
+    user_bpm = get_user_bpm()
+    target_bpm = user_bpm
+    
+    if stress_level == '高':
+        # 高压力（如 90）：目标提升到 75，避免 60bpm 导致的呆板长音
+        target_bpm = max(75, user_bpm - 15)
+    elif stress_level == '中':
+        # 中压力：稍微慢一点
+        target_bpm = max(60, user_bpm - 5)
+    else: 
+        # 低压力：同频共振，保持活力
+        target_bpm = user_bpm
+
+    # 移除原有的硬编码 BPM 范围 (如 "80-100 BPM")
+    music_keywords = [k for k in music_keywords if "BPM" not in k]
+    
+    # 将 BPM 转换为语义描述，这更利于 MusicGen 生成高质量音乐
+    if target_bpm < 70:
+        tempo_desc = "slow tempo"
+    elif target_bpm < 110:
+        tempo_desc = "moderate tempo"
+    else:
+        tempo_desc = "fast tempo"
+
+    # 插入动态 BPM 和描述
+    
+    # --- 关键修复：恢复丢失的智能偏好适配逻辑 ---
+    if USER_MUSIC_PREFERENCE:
+        pref = USER_MUSIC_PREFERENCE.lower()
+        
+        # 1. 高压力修饰：Pop -> Soft Pop Ballad
+        if stress_level == '高' and len(music_keywords) > 0 and music_keywords[0] == USER_MUSIC_PREFERENCE:
+             music_keywords[0] = f"soft {music_keywords[0]} ballad, acoustic version"
+        
+        # 2. 低压力修饰：防止特定风格 + Pop Rock 的冲突
+        # 扩充保护名单：Blues, R&B, Soul, Country, Folk 等都不应该和 Pop Rock 混搭
+        protected_genres = ['classical', 'jazz', 'piano', 'orchestral', 'blues', 'r&b', 'soul', 'country', 'folk', 'acoustic']
+        
+        if stress_level == '低' and any(g in pref for g in protected_genres):
+            # 动态替换 STRESS_LEVEL_LOW 的默认 Pop Rock 描述
+            # 这里的 trick 是直接重构列表，抛弃默认的 upbeat pop rock
+            music_keywords = [USER_MUSIC_PREFERENCE, "energetic", "virtuoso", "upbeat rhythm", "positive vibes", "bright atmosphere", "major scale"]
+        # 2. 低压力修饰... (Existing code)
+        
+        # 3. 中压力修饰 (新增)：防止 Reggae + Smooth Jazz 的"撞钟"惨剧
+        # Reggae, Funk, Latin, Hip Hop 等强节奏风格不应强行转 Jazz
+        rhythmic_genres = ['reggae', 'funk', 'latin', 'hip hop', 'disco', 'house', 'soul']
+        if stress_level == '中' and any(g in pref for g in rhythmic_genres):
+             # 保持原风格，但加上"Chill", "Laid back" 等中性放松词，而不是 Jazz
+             music_keywords = [USER_MUSIC_PREFERENCE, "chill groove", "laid back", "melodic", "soft textures", "moderate tempo", "instrumental"]
+             
+    # ---------------------------------------------
+    seen = set()
+    deduped_keywords = []
+    
+    # 先处理 BPM 字符串
+    bpm_str = f"{tempo_desc}, bpm: {target_bpm}"
+    
+    # 遍历现有关键词并去重
+    for k in music_keywords:
+        k_clean = k.strip()
+        k_lower = k_clean.lower()
+        # 过滤掉重复的 tempo 描述，因为我们最后会统一加 bpm_str
+        if k_clean and k_lower not in seen and "tempo" not in k_lower and "bpm" not in k_lower:
+            seen.add(k_lower)
+            deduped_keywords.append(k_clean)
+            
+    # 将 BPM 描述插入到合适位置 (紧跟风格之后)
+    # 如果有用户偏好且在第一位，插在第二位；否则插在第一位
+    insert_pos = 0
+    if USER_MUSIC_PREFERENCE and len(deduped_keywords) > 0 and USER_MUSIC_PREFERENCE in deduped_keywords[0]:
+        insert_pos = 1
+        
+    deduped_keywords.insert(insert_pos, bpm_str)
+    
+    # 优化 Prompt 尾部 (添加高质量标签和去人声，防止恐怖原本)
+    extras = ["high fidelity", "4k audio", "stereo", "instrumental", "no vocals"]
+    for e in extras:
+        if e not in seen:
+            deduped_keywords.append(e)
+    
+    return ", ".join(deduped_keywords)
 
 
 def set_user_music_preference(preference_keyword: str) -> bool:

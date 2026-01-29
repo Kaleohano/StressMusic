@@ -158,16 +158,28 @@ def run(port, baudrate, window_size, service_url=None, final=False, compact=Fals
                 else:
                     ema_hrv = ema_alpha * raw_hrv + (1 - ema_alpha) * ema_hrv
 
+                # 计算当前窗口的 BPM (使用中位数更稳健，抗漏检)
+                if cleaned:
+                    median_ibi = statistics.median(cleaned)
+                    current_bpm = int(60000.0 / median_ibi) if median_ibi > 0 else 70
+                else:
+                    current_bpm = 70
+
                 stress_level = hrv_to_stress_level(ema_hrv)
                 prompt = get_stress_music_prompt(ema_hrv)
 
-                # 将最新 HRV 写入文件，供其他程序（如 music.py）读取
+                # 将最新 HRV 和 BPM 写入文件
                 try:
                     with open(latest_hrv_file, 'w') as f:
                         f.write(f"{ema_hrv:.4f}")
-                    print(f"已写入 HRV 值到文件: {ema_hrv:.4f}")  # 添加调试日志
+                        
+                    latest_bpm_file = os.path.join(os.path.dirname(latest_hrv_file), 'latest_bpm.txt')
+                    with open(latest_bpm_file, 'w') as f:
+                        f.write(f"{current_bpm}")
+                        
+                    # print(f"已写入 HRV 值到文件: {ema_hrv:.4f}")  # 添加调试日志
                 except Exception as e:
-                    print(f"写入 latest_hrv.txt 失败：{e}，文件路径：{latest_hrv_file}")
+                    print(f"写入 latest_hrv/bpm.txt 失败：{e}，文件路径：{latest_hrv_file}")
 
                 # 如果提供了常驻服务地址，则 POST HRV 到服务以降低延迟
                 if service_url:

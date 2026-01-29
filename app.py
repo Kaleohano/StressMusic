@@ -11,6 +11,9 @@ from stress import get_stress_music_prompt, STRESS_MUSIC_MAP
 import json
 import re
 import scipy
+import torch
+import numpy as np
+import scipy.signal
 from transformers import AutoProcessor, MusicgenForConditionalGeneration
 import subprocess
 import sys
@@ -62,8 +65,16 @@ def load_model():
             return
         
         print("📦 正在加载处理器和模型...")
+        # 强制使用 CPU 以修复 MPS 产生的"大风吹"噪声问题
+        # 虽然 MPS 理论上更快，但在当前 PyTorch/MusicGen 组合下输出可能是纯噪声
+        device = "cpu"
+        print(f"🖥️  强制使用设备: {device} (为了保证音质绝对稳定，放弃 GPU 加速)")
+        
+        # 这里的旧代码已注释，因为 MPS 确实不可用
+        # if torch.cuda.is_available(): ...
+            
         processor = AutoProcessor.from_pretrained(model_path)
-        model = MusicgenForConditionalGeneration.from_pretrained(model_path)
+        model = MusicgenForConditionalGeneration.from_pretrained(model_path).to(device)
         
         # 验证模型加载是否成功
         if processor is None or model is None:
@@ -303,6 +314,20 @@ music_generation_status = {
     'error': None
 }
 
+# 启用 MPS 后备模式，以防部分算子在 GPU 上不支持
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+# 解除 MPS 显存限制 (允许使用更多系统内存)，避免 OOM
+os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+
+import uuid
+from datetime import datetime, timedelta
+import threading
+import time
+import shutil
+import gc  # 引入垃圾回收
+
+# ... (imports) ...
+
 def generate_music_task(input_text):
     global music_generation_status
     print(f"🧵 后台线程启动，开始生成音乐，提示词: {input_text}")
@@ -311,32 +336,169 @@ def generate_music_task(input_text):
         if model is None or processor is None:
             raise Exception("模型未正确加载")
 
-        inputs = processor(
-            text=[input_text],
-            padding=True,
-            return_tensors="pt"
-        )
+        # 每轮生成前主动清理内存
+        gc.collect()
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+
+        # 获取当前配置的设备
+        original_device = model.device
         
-        audio_values = model.generate(
-            **inputs,
-            max_new_tokens=1500,
-            do_sample=True,
-            temperature=1.2,
-            top_k=250,
-            top_p=0.9
-        )
-        
+        # 使用 inference_mode 极限压榨 CPU 性能
+        with torch.inference_mode():
+            try:
+                print(f"🚀 尝试在 {original_device} 上生成...")
+                inputs = processor(
+                    text=[input_text],
+                    return_tensors="pt"
+                ).to(original_device)
+                
+                audio_values = model.generate(
+                    **inputs,
+                    max_new_tokens=1250,
+                    do_sample=True,
+                    guidance_scale=3.0,
+                    temperature=0.8,
+                    top_p=0.9
+                )
+            except RuntimeError as e:
+                print(f"⚠️ 硬件加速生成失败 ({e})")
+                print("🔄 正在自动回退到 CPU 重试...")
+                
+                model.to('cpu')
+                inputs = processor(text=[input_text], return_tensors="pt").to('cpu')
+                audio_values = model.generate(
+                    **inputs,
+                    max_new_tokens=1250,
+                    do_sample=True,
+                    guidance_scale=3.0,
+                    temperature=0.8,
+                    top_p=0.9
+                )
+                if original_device.type != 'cpu':
+                    try: model.to(original_device)
+                    except: pass
+
         # 保存音频文件
         file_id = str(uuid.uuid4())
         output_file = os.path.join(AUDIO_DIR, f"{file_id}.wav")
         
         sampling_rate = model.config.audio_encoder.sampling_rate
-        audio_data = audio_values[0, 0].numpy()
+        # 必须先移回 CPU
+        audio_data = audio_values[0, 0].cpu().numpy()
+        
+        # --- 优化：去除直流偏移 (DC Offset)，防止拼接时的"噗"声 ---
+        if len(audio_data) > 0:
+            audio_data = audio_data - np.mean(audio_data)
         
         if len(audio_data) == 0:
             raise ValueError("生成的音频数据为空")
+
+        # --- 策略：DSP 变奏循环 (A-B-A-B 结构) ---
+        target_duration = 300  # 5 分钟
+        current_duration = len(audio_data) / sampling_rate
         
-        scipy.io.wavfile.write(output_file, rate=sampling_rate, data=audio_data)
+        if current_duration > 0 and current_duration < target_duration:
+            print(f"🔄 正在应用 Overlap-Add 无缝重叠拼接策略 (Duration: {current_duration:.2f}s)...")
+            
+            # 1. 准备素材: A (原版) 和 B (变奏)
+            # 制作 B 段 (变奏)：施加柔和的低通滤波器
+            try:
+                b, a = scipy.signal.butter(4, 1200 / (sampling_rate / 2), 'low')
+                audio_data_lowpass = scipy.signal.lfilter(b, a, audio_data)
+                if np.isnan(audio_data_lowpass).any(): audio_data_lowpass = audio_data.copy() 
+            except:
+                audio_data_lowpass = audio_data.copy()
+
+            # 2. 定义重叠参数
+            overlap_sec = 3.0 # 3秒重叠
+            overlap_len = int(sampling_rate * overlap_sec)
+            
+            # --- 关键修复：防止音频过导致 Overlap 崩溃 ---
+            # 遇到"叮一声"就是因为音频还没 overlap 长，导致切片索引错乱
+            min_required_len = int(sampling_rate * 5.0) # 至少要有5秒才能做漂亮的 fade
+            if len(audio_data) < min_required_len:
+                print(f"⚠️ 生成音频过短 ({len(audio_data)/sampling_rate:.2f}s)，正在强制补齐...")
+                # 简单重复几次直到足够长，保证后续算法不崩
+                if len(audio_data) > 0:
+                    repeat_times = int(np.ceil(min_required_len / len(audio_data)))
+                    audio_data = np.tile(audio_data, repeat_times)
+                    # 同时也补齐 B 段
+                    audio_data_lowpass = np.tile(audio_data_lowpass, repeat_times)
+            
+            # 如果还是不够长（极小概率），缩小 Overlap
+            if len(audio_data) < 2 * overlap_len:
+                overlap_len = len(audio_data) // 3
+            # ---------------------------------------------
+            
+            # 3. 预计算淡入淡出曲线 (用于重叠区)
+            # 使用 sqrt(t) 曲线，保证功率恒定 (Constant Power Crossfade)
+            t = np.linspace(0, 1, overlap_len)
+            fade_in = np.sqrt(t)
+            fade_out = np.sqrt(1 - t)
+            
+            # 4. 开始拼接
+            # 计算总共需要多少段
+            # 每一段贡献的有效新长度是 (Length - Overlap)
+            segment_len = len(audio_data)
+            hop_len = segment_len - overlap_len
+            if hop_len <= 0: hop_len = segment_len // 2 # 防御性编码
+
+            target_samples = int(target_duration * sampling_rate)
+            num_segments = int(np.ceil(target_samples / hop_len)) + 2
+            
+            # 初始化大数组
+            # 预估一个足够长的长度，最后再截断
+            estimated_len = hop_len * num_segments + segment_len
+            combined_audio = np.zeros(estimated_len, dtype=np.float32)
+            
+            print(f"🧩 正在拼接 {num_segments} 个片段，重叠长度: {overlap_len} 采样点")
+
+            for i in range(num_segments):
+                # 选择素材: A-B-A-B
+                part = audio_data if i % 2 == 0 else audio_data_lowpass
+                
+                # 获取当前段在总数组中的位置
+                # 第 i 段的起始位置由 hop_len 决定
+                start = i * hop_len
+                
+                # 复制一份当前片段
+                this_segment = part.copy()
+                
+                # 如果这不是第一段，开头要 Fade In (为了和上一段的 Tail 融合)
+                if i > 0:
+                     this_segment[:overlap_len] *= fade_in
+                
+                # 如果这不是最后一段，结尾要 Fade Out (为了和下一段的 Head 融合)
+                if i < num_segments - 1:
+                     this_segment[-overlap_len:] *= fade_out
+                     
+                # 叠加到主数组 (Overlap-Add)
+                write_len = min(segment_len, len(combined_audio) - start)
+                if write_len > 0:
+                    combined_audio[start : start + write_len] += this_segment[:write_len]
+            
+            # 截取有效长度并赋值
+            final_valid_len = min(len(combined_audio), target_samples)
+            # 找到最后一个非零点的附近，或者直接用 target_samples
+            audio_data = combined_audio[:final_valid_len]
+
+        # 4. 最终检查与保存
+        # 检查 NaN / Inf
+        if np.isnan(audio_data).any() or np.isinf(audio_data).any():
+            print("❌ 检测到 NaN 或 Inf 数值！替换为 0...")
+            audio_data = np.nan_to_num(audio_data)
+            
+        print(f"🔍 音频数据检查: Min={audio_data.min()}, Max={audio_data.max()}")
+        
+        # 归一化
+        max_val = np.max(np.abs(audio_data))
+        if max_val > 0:
+            audio_data = audio_data / max_val
+            
+        # 最终转换为 Int16 (标准 WAV)
+        audio_data_int16 = (audio_data * 32767).clip(-32768, 32767).astype(np.int16)
+        scipy.io.wavfile.write(output_file, rate=sampling_rate, data=audio_data_int16)
         
         # 验证文件
         if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
