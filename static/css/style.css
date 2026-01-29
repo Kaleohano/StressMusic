@@ -796,196 +796,197 @@ p.status-text {
 .progress-ring__circle {
     transition: stroke-dashoffset 0.35s;
     transform-origin: 50% 50%;
-
-    /* --- Outcome Report Modal --- */
-    .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background: rgba(45, 52, 54, 0.4);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        z-index: 200;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        opacity: 0;
-        visibility: hidden;
-        transition: all 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
-    }
-
-    .modal-overlay.active {
-        opacity: 1;
-        visibility: visible;
-    }
-
-    .report-card {
-        background: #ffffff;
-        width: 90%;
-        max-width: 500px;
-        border-radius: 32px;
-        padding: 2.5rem;
-        box-shadow:
-            0 20px 60px rgba(0, 0, 0, 0.15),
-            0 1px 3px rgba(0, 0, 0, 0.05);
-        text-align: center;
-        transform: translateY(30px) scale(0.95);
-        transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-        position: relative;
-        overflow: hidden;
-    }
-
-    .modal-overlay.active .report-card {
-        transform: translateY(0) scale(1);
-    }
-
-    /* Header */
-    .report-card h2 {
-        font-size: 1.8rem;
-        margin-bottom: 0.5rem;
-        background: linear-gradient(135deg, #6C5CE7 0%, #00B894 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-
-    .report-subtitle {
-        color: var(--text-sub);
-        font-size: 0.95rem;
-        margin-bottom: 2rem;
-    }
-
-    /* Metrics Grid */
-    .metrics-comparison {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-        margin-bottom: 2rem;
-    }
-
-    .metric-box {
-        background: #f8f9fa;
-        border-radius: 20px;
-        padding: 1.2rem;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        position: relative;
-        border: 1px solid rgba(0, 0, 0, 0.03);
-    }
-
-    .metric-label {
-        font-size: 0.85rem;
-        font-weight: 600;
-        color: var(--text-sub);
-        margin-bottom: 0.8rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .comparison-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        width: 100%;
-    }
-
-    .value-group {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-    }
-
-    .sub-label {
-        font-size: 0.65rem;
-        color: #b2bec3;
-        margin-bottom: 2px;
-    }
-
-    .metric-val {
-        font-size: 1.4rem;
-        font-weight: 700;
-        color: var(--text-main);
-        font-feature-settings: "tnum";
-    }
-
-    .arrow-indicator {
-        font-size: 1.2rem;
-        color: var(--text-sub);
-        margin: 0 0.5rem;
-        opacity: 0.5;
-    }
-
-    /* Change Tag (Better/Worse) */
-    .change-tag {
-        margin-top: 0.8rem;
-        font-size: 0.75rem;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-weight: 600;
-    }
-
-    .change-tag.good {
-        background: rgba(0, 184, 148, 0.1);
-        color: #00B894;
-    }
-
-    .change-tag.bad {
-        background: rgba(255, 118, 117, 0.1);
-        color: #ff7675;
-    }
-
-    .change-tag.neutral {
-        background: rgba(178, 190, 195, 0.1);
-        color: #636e72;
-    }
-
-    /* Chart Container */
-    .chart-container {
-        margin-top: 1rem;
-        margin-bottom: 2rem;
-        padding: 1rem;
-        background: #fff;
-        /* Optional chart bg */
-    }
-
-    .chart-container h3 {
-        font-size: 0.9rem;
-        color: var(--text-sub);
-        margin-bottom: 1rem;
-        text-align: left;
-        margin-left: 0.5rem;
-    }
-
-    #trend-chart {
-        filter: drop-shadow(0 4px 6px rgba(108, 92, 231, 0.2));
-    }
-
-    /* Restart Button */
-    .restart-btn {
-        width: 100%;
-        padding: 1rem;
-        border: none;
-        border-radius: 16px;
-        background: var(--text-main);
-        color: white;
-        font-size: 1.1rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        box-shadow: 0 10px 20px rgba(45, 52, 54, 0.2);
-    }
-
-    .restart-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 15px 30px rgba(45, 52, 54, 0.3);
-        background: linear-gradient(135deg, #2d3436 0%, #636e72 100%);
-    }
-
+    stroke-dasharray: 1005;
+    /* 2 * PI * 160 */
     stroke-dashoffset: 1005;
     stroke-linecap: round;
     filter: drop-shadow(0 0 4px rgba(108, 92, 231, 0.5));
+}
+
+/* --- Outcome Report Modal --- */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(45, 52, 54, 0.4);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 200;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.modal-overlay.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+.report-card {
+    background: #ffffff;
+    width: 90%;
+    max-width: 500px;
+    border-radius: 32px;
+    padding: 2.5rem;
+    box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.15),
+        0 1px 3px rgba(0, 0, 0, 0.05);
+    text-align: center;
+    transform: translateY(30px) scale(0.95);
+    transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.modal-overlay.active .report-card {
+    transform: translateY(0) scale(1);
+}
+
+/* Header */
+.report-card h2 {
+    font-size: 1.8rem;
+    margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, #6C5CE7 0%, #00B894 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.report-subtitle {
+    color: var(--text-sub);
+    font-size: 0.95rem;
+    margin-bottom: 2rem;
+}
+
+/* Metrics Grid */
+.metrics-comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.metric-box {
+    background: #f8f9fa;
+    border-radius: 20px;
+    padding: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    border: 1px solid rgba(0, 0, 0, 0.03);
+}
+
+.metric-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-sub);
+    margin-bottom: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.comparison-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.value-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.sub-label {
+    font-size: 0.65rem;
+    color: #b2bec3;
+    margin-bottom: 2px;
+}
+
+.metric-val {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--text-main);
+    font-feature-settings: "tnum";
+}
+
+.arrow-indicator {
+    font-size: 1.2rem;
+    color: var(--text-sub);
+    margin: 0 0.5rem;
+    opacity: 0.5;
+}
+
+/* Change Tag (Better/Worse) */
+.change-tag {
+    margin-top: 0.8rem;
+    font-size: 0.75rem;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-weight: 600;
+}
+
+.change-tag.good {
+    background: rgba(0, 184, 148, 0.1);
+    color: #00B894;
+}
+
+.change-tag.bad {
+    background: rgba(255, 118, 117, 0.1);
+    color: #ff7675;
+}
+
+.change-tag.neutral {
+    background: rgba(178, 190, 195, 0.1);
+    color: #636e72;
+}
+
+/* Chart Container */
+.chart-container {
+    margin-top: 1rem;
+    margin-bottom: 2rem;
+    padding: 1rem;
+    background: #fff;
+    /* Optional chart bg */
+}
+
+.chart-container h3 {
+    font-size: 0.9rem;
+    color: var(--text-sub);
+    margin-bottom: 1rem;
+    text-align: left;
+    margin-left: 0.5rem;
+}
+
+#trend-chart {
+    filter: drop-shadow(0 4px 6px rgba(108, 92, 231, 0.2));
+}
+
+/* Restart Button */
+.restart-btn {
+    width: 100%;
+    padding: 1rem;
+    border: none;
+    border-radius: 16px;
+    background: var(--text-main);
+    color: white;
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 10px 20px rgba(45, 52, 54, 0.2);
+}
+
+.restart-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 30px rgba(45, 52, 54, 0.3);
+    background: linear-gradient(135deg, #2d3436 0%, #636e72 100%);
 }
 
 /* Center Knob / Button */
