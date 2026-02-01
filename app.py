@@ -595,19 +595,33 @@ def set_preference():
         return jsonify({'error': str(e)}), 500
 @app.route('/api/latest-hrv')
 def latest_hrv():
-    """返回 generated_audio/latest_hrv.txt 的值和修改时间（若存在）。"""
+    """返回 generated_audio/latest_hrv.txt 的值和修改时间（若存在）。同时尝试读取 latest_bpm.txt"""
     try:
-        latest_hrv_path = os.path.join(os.path.dirname(__file__), 'generated_audio', 'latest_hrv.txt')
+        base_dir = os.path.dirname(__file__)
+        latest_hrv_path = os.path.join(base_dir, 'generated_audio', 'latest_hrv.txt')
+        latest_bpm_path = os.path.join(base_dir, 'generated_audio', 'latest_bpm.txt')
+
         if not os.path.exists(latest_hrv_path):
-            return jsonify({'exists': False, 'hrv': None, 'mtime': None})
+            return jsonify({'exists': False, 'hrv': None, 'bpm': None, 'mtime': None})
+            
         mtime = os.path.getmtime(latest_hrv_path)
-        with open(latest_hrv_path, 'r', encoding='utf-8') as f:
-            txt = f.read().strip()
+        
+        # Read HRV
+        hrv = None
         try:
-            hrv = float(txt)
-        except Exception:
-            hrv = None
-        return jsonify({'exists': True, 'hrv': hrv, 'mtime': mtime})
+            with open(latest_hrv_path, 'r', encoding='utf-8') as f:
+                hrv = float(f.read().strip())
+        except: pass
+
+        # Read BPM
+        bpm = None
+        if os.path.exists(latest_bpm_path):
+            try:
+                with open(latest_bpm_path, 'r', encoding='utf-8') as f:
+                    bpm = int(float(f.read().strip()))
+            except: pass
+            
+        return jsonify({'exists': True, 'hrv': hrv, 'bpm': bpm, 'mtime': mtime})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

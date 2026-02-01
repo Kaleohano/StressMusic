@@ -137,14 +137,34 @@ def run(port, baudrate, window_size, service_url=None, final=False, compact=Fals
                         ibi_val = 60000.0 / bpm
 
             if ibi_val is not None:
-                print(f"DEBUG: 收到原始 IBI={ibi_val:.2f}", flush=True)
+                # ---------------------------------------------------------
+                # 优化1: 实时心跳反馈
+                # 只要收到硬件信号，立刻给用户反馈，不再静默
+                # ---------------------------------------------------------
+                # print(f"DEBUG: 收到原始 IBI={ibi_val:.2f}", flush=True) # 调试用
+                
                 ibi_window.append(ibi_val)
                 now = time.strftime('%Y-%m-%d %H:%M:%S')
 
-                cleaned, removed = clean_ibi_list(list(ibi_window))
-                if len(cleaned) < min_count_for_hrv:
+                # ---------------------------------------------------------
+                # 优化2: 动态过滤策略
+                # 初期(数据少)只做物理范围过滤，不删异常值，保证有数可出
+                # 后期(数据多)再启用 MAD 统计过滤
+                # ---------------------------------------------------------
+                if len(ibi_window) < 10:
+                    cleaned = [x for x in ibi_window if 300 <= x <= 2000]
+                    removed = len(ibi_window) - len(cleaned)
+                else:
+                    # 放宽倍数到 4.5 (原 3.5)，减少误杀真实波动
+                    cleaned, removed = clean_ibi_list(list(ibi_window), mad_multiplier=4.5) 
+                
+                # ---------------------------------------------------------
+                # 优化3: 降低冷启动门槛
+                # ---------------------------------------------------------
+                if len(cleaned) < 3: # 原来是 5，现在改为 3 个点就开始输出
                     if not final and not compact:
-                        print(f"接收到 IBI={ibi_val:.2f} ms；等待更多数据以计算 HRV... (window {len(ibi_window)})", flush=True)
+                        # 打印一个心跳动效，缓解用户焦虑
+                        print(f"❤️ 正在校准基线... ({len(cleaned)}/3)", flush=True)
                     continue
 
                 raw_hrv = rmssd_from_ibi_list(cleaned)
